@@ -1,0 +1,219 @@
+@import "tailwindcss";
+@config "../tailwind.config.js";
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+  }
+  body {
+    background-color: transparent;
+    color: hsl(var(--foreground));
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    border-radius: 16px;
+  }
+  html {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background-color: transparent;
+    border-radius: 16px;
+  }
+  #root {
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+    background-color: transparent;
+    border-radius: 16px;
+    isolation: isolate;
+  }
+  .drag-region {
+    -webkit-app-region: drag;
+  }
+  .no-drag {
+    -webkit-app-region: no-drag;
+  }
+}
+
+/* Custom Scrollbar Styles */
+@layer base {
+  /* Webkit browsers (Chrome, Safari, Edge) */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgba(156, 163, 175, 0.5);
+    border-radius: 5px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(156, 163, 175, 0.7);
+    background-clip: padding-box;
+  }
+
+  /* Firefox */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(156, 163, 175, 0.5) transparent;
+  }
+}
+
+/* Volume Slider Styles */
+@layer base {
+  input[type="range"].slider {
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    cursor: pointer;
+    padding: 0;
+    margin: 0;
+  }
+
+  input[type="range"].slider::-webkit-slider-track {
+    background: transparent;
+    height: 8px;
+    border-radius: 4px;
+  }
+
+  input[type="range"].slider::-webkit-slider-runnable-track {
+    height: 8px;
+    border-radius: 4px;
+  }
+
+  input[type="range"].slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    background: #ffffff;
+    height: 16px;
+    width: 16px;
+    border-radius: 50%;
+    margin-top: -4px;
+    cursor: pointer;
+    transition:
+      background 0.2s,
+      box-shadow 0.2s,
+      transform 0.1s ease-out;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    position: relative;
+  }
+
+  /* Smooth automatic movement when not dragging */
+  /* Transition duration slightly longer than update interval (100ms) for smooth interpolation */
+  input[type="range"].slider.slider-smooth {
+    transition: background 0.12s linear;
+    will-change: background;
+  }
+
+  input[type="range"].slider.slider-smooth::-webkit-slider-thumb {
+    transition:
+      background 0.2s,
+      box-shadow 0.2s,
+      transform 0.1s ease-out;
+  }
+
+  /* No transition when dragging for instant response */
+  input[type="range"].slider.slider-dragging {
+    transition: none;
+  }
+
+  input[type="range"].slider.slider-dragging::-webkit-slider-thumb {
+    transition:
+      background 0.2s,
+      box-shadow 0.2s,
+      transform 0.1s ease-out;
+  }
+
+  input[type="range"].slider::-webkit-slider-thumb:hover {
+    background: #f3f4f6;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  }
+
+  input[type="range"].slider::-moz-range-track {
+    background: transparent;
+    height: 8px;
+    border-radius: 4px;
+  }
+
+  input[type="range"].slider::-moz-range-thumb {
+    background: #ffffff;
+    height: 16px;
+    width: 16px;
+    border-radius: 50%;
+    border: none;
+    cursor: pointer;
+    transition:
+      background 0.2s,
+      box-shadow 0.2s,
+      transform 0.1s ease-out;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  }
+
+  /* Smooth automatic movement when not dragging */
+  /* Transition duration slightly longer than update interval (100ms) for smooth interpolation */
+  input[type="range"].slider.slider-smooth {
+    transition: background 0.12s linear;
+    will-change: background;
+  }
+
+  input[type="range"].slider.slider-smooth::-moz-range-thumb {
+    transition:
+      background 0.2s,
+      box-shadow 0.2s,
+      transform 0.1s ease-out;
+  }
+
+  /* No transition when dragging for instant response */
+  input[type="range"].slider.slider-dragging {
+    transition: none;
+  }
+
+  input[type="range"].slider.slider-dragging::-moz-range-thumb {
+    transition:
+      background 0.2s,
+      box-shadow 0.2s,
+      transform 0.1s ease-out;
+  }
+
+  input[type="range"].slider::-moz-range-thumb:hover {
+    background: #f3f4f6;
+    transform: scale(1.1);
+  }
+}
