@@ -99,6 +99,7 @@ const SortablePageItem = ({
           className="w-full h-full"
           pageNumber={page.pageNumber}
           fileId={`${fileId}-page-${page.pageNumber}`}
+          preRenderedImage={page.imageData}
         />
       </div>
       <div className="flex-1 min-w-0">
@@ -243,6 +244,7 @@ export const PdfFileItem = ({
             className="w-full h-full"
             pageNumber={pages[0]?.pageNumber || 1}
             fileId={file.id}
+            preRenderedImage={pages[0]?.imageData}
           />
         </div>
         <div className="flex-1 min-w-0">

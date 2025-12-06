@@ -617,56 +617,17 @@ export const ProjectorView = () => {
     }
 
     const currentFile = files[currentIndex];
+    // PDF pages are converted to images before being sent to projector
+    // So we should never need to render from PDF here
     if (currentFile.type === "document") {
-      const generatePdfThumbnail = async () => {
-        try {
-          const canvas = canvasRef.current;
-          if (!canvas) return;
-
-          // If data is already a rendered page image, use it directly
-          if (currentFile.data.startsWith("data:image")) {
-            setPdfThumbnail(currentFile.data);
-            return;
-          }
-
-          // Otherwise, render the PDF page
-          const response = await fetch(currentFile.data);
-          const arrayBuffer = await response.arrayBuffer();
-
-          const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-          const pageToRender = currentFile.pageNumber || 1;
-          const page = await pdf.getPage(pageToRender);
-
-          const viewport = page.getViewport({ scale: 1.0 });
-          const maxDimension = Math.max(window.innerWidth, window.innerHeight);
-          const scale = Math.min(
-            maxDimension / viewport.width,
-            maxDimension / viewport.height,
-            2.0
-          );
-          const scaledViewport = page.getViewport({ scale });
-
-          canvas.width = scaledViewport.width;
-          canvas.height = scaledViewport.height;
-
-          const context = canvas.getContext("2d");
-          if (!context) return;
-
-          await page.render({
-            canvasContext: context,
-            viewport: scaledViewport,
-            canvas: canvas,
-          }).promise;
-
-          const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
-          setPdfThumbnail(dataUrl);
-        } catch (error) {
-          console.error("Error generating PDF thumbnail:", error);
-          setPdfThumbnail(null);
-        }
-      };
-
-      generatePdfThumbnail();
+      // If we receive a document type, it should have been converted to an image
+      // Log a warning and try to use the data as-is if it's already an image
+      if (currentFile.data.startsWith("data:image")) {
+        setPdfThumbnail(currentFile.data);
+      } else {
+        console.warn("Document type received in projector without image data. PDFs should be converted to images before projection.");
+        setPdfThumbnail(null);
+      }
     } else {
       setPdfThumbnail(null);
     }

@@ -319,9 +319,57 @@ export const App = () => {
     [handleSelectFiles]
   );
 
-  const handleReorder = (reorderedFiles: FileItem[]) => {
+  const handleReorder = useCallback(async (reorderedFiles: FileItem[]) => {
     setFiles(reorderedFiles);
-  };
+
+    // Save the new file order to persistence
+    if (window.electronAPI) {
+      try {
+        // Load current files from persistence to get their data
+        const result = await window.electronAPI.loadFiles();
+        if (result.success && result.files) {
+          // Build the new file order from reordered files
+          const newFileOrder = reorderedFiles.flatMap((f) => {
+            if (f.type === "document" && f.pages && f.pages.length > 0) {
+              // For PDFs, include pages in order, then the main document
+              return [...f.pages.map((p) => p.id), f.id];
+            }
+            return [f.id];
+          });
+
+          // Create a map of file IDs to their data for quick lookup
+          const filesDataMap = new Map(result.files.map((f) => [f.id, f]));
+
+          // Reorder files according to the new order
+          const reorderedFilesData: Array<{
+            id: string;
+            name: string;
+            type: string;
+            data: string;
+            pageNumber?: number;
+          }> = [];
+
+          for (const fileId of newFileOrder) {
+            const fileData = filesDataMap.get(fileId);
+            if (fileData) {
+              reorderedFilesData.push({
+                id: fileData.id,
+                name: fileData.name,
+                type: fileData.type,
+                data: fileData.data,
+                pageNumber: fileData.pageNumber,
+              });
+            }
+          }
+
+          // Save with the new order
+          await window.electronAPI.saveFiles(reorderedFilesData, newFileOrder);
+        }
+      } catch (error) {
+        console.error("Error saving file order to persistence:", error);
+      }
+    }
+  }, []);
 
   const handleRemove = async (id: string) => {
     // Find the file to get its type
@@ -337,7 +385,56 @@ export const App = () => {
     }
 
     // Remove from state
-    setFiles((prev) => prev.filter((file) => file.id !== id));
+    const updatedFiles = files.filter((file) => file.id !== id);
+    setFiles(updatedFiles);
+
+    // Save the updated file order to persistence
+    if (window.electronAPI) {
+      try {
+        // Load current files from persistence to get their data
+        const result = await window.electronAPI.loadFiles();
+        if (result.success && result.files) {
+          // Build the new file order from updated files (excluding the removed one)
+          const newFileOrder = updatedFiles.flatMap((f) => {
+            if (f.type === "document" && f.pages && f.pages.length > 0) {
+              // For PDFs, include pages in order, then the main document
+              return [...f.pages.map((p) => p.id), f.id];
+            }
+            return [f.id];
+          });
+
+          // Create a map of file IDs to their data for quick lookup
+          const filesDataMap = new Map(result.files.map((f) => [f.id, f]));
+
+          // Reorder files according to the new order, excluding the removed file
+          const reorderedFilesData: Array<{
+            id: string;
+            name: string;
+            type: string;
+            data: string;
+            pageNumber?: number;
+          }> = [];
+
+          for (const fileId of newFileOrder) {
+            const fileData = filesDataMap.get(fileId);
+            if (fileData) {
+              reorderedFilesData.push({
+                id: fileData.id,
+                name: fileData.name,
+                type: fileData.type,
+                data: fileData.data,
+                pageNumber: fileData.pageNumber,
+              });
+            }
+          }
+
+          // Save with the new order
+          await window.electronAPI.saveFiles(reorderedFilesData, newFileOrder);
+        }
+      } catch (error) {
+        console.error("Error saving file order after removal:", error);
+      }
+    }
   };
 
   // Update projector when files change
@@ -794,7 +891,12 @@ export const App = () => {
           const loadedFiles: FileItem[] = [];
 
           // Process each file (we're now saving full files, not page files)
-          for (const savedFile of result.files) {
+          // Filter out PDF page images - they're internal to PDF documents, not standalone files
+          const mainFiles = result.files.filter(
+            (f) => !f.id.includes("-page-") || f.type === "document"
+          );
+
+          for (const savedFile of mainFiles) {
             try {
               const fileType: "image" | "video" | "document" =
                 savedFile.type === "video"
@@ -825,9 +927,33 @@ export const App = () => {
                   .promise;
                 const numPages = pdf.numPages;
 
+                // Get the saved file order to determine page order
+                const savedFileOrder = result.fileOrder || [];
+
+                // Find all page IDs for this PDF in the saved order
+                const pageIdsInOrder = savedFileOrder.filter((id) =>
+                  id.startsWith(`${savedFile.id}-page-`)
+                );
+
                 const pages: PdfPage[] = [];
-                for (let pageNum = 1; pageNum <= numPages; pageNum++) {
-                  const pageId = `${savedFile.id}-page-${pageNum}`;
+
+                // If we have a saved order, use it; otherwise use default order (1 to numPages)
+                const pageIdsToLoad =
+                  pageIdsInOrder.length > 0
+                    ? pageIdsInOrder
+                    : Array.from(
+                        { length: numPages },
+                        (_, i) => `${savedFile.id}-page-${i + 1}`
+                      );
+
+                for (const pageId of pageIdsToLoad) {
+                  // Extract page number from pageId (format: fileId-page-N)
+                  const pageNumMatch = pageId.match(/-page-(\d+)$/);
+                  if (!pageNumMatch) continue;
+
+                  const pageNum = parseInt(pageNumMatch[1], 10);
+                  if (pageNum < 1 || pageNum > numPages) continue;
+
                   // Try to find pre-rendered image in the loaded files
                   let imageData: string | undefined;
                   const pageFile = result.files?.find((f) => f.id === pageId);
@@ -936,7 +1062,12 @@ export const App = () => {
       if (data && data.files && data.files.length > 0) {
         const loadedFiles: FileItem[] = [];
 
-        for (const savedFile of data.files) {
+        // Filter out PDF page images - they're internal to PDF documents, not standalone files
+        const mainFiles = data.files.filter(
+          (f) => !f.id.includes("-page-") || f.type === "document"
+        );
+
+        for (const savedFile of mainFiles) {
           try {
             const fileType: "image" | "video" | "document" =
               savedFile.type === "video"
@@ -945,7 +1076,6 @@ export const App = () => {
                   ? "document"
                   : "image";
 
-            // Convert base64 to File object
             const base64Data = savedFile.data.split(",")[1] || savedFile.data;
             const mimeType = savedFile.data
               .split(",")[0]
@@ -967,21 +1097,38 @@ export const App = () => {
                 .promise;
               const numPages = pdf.numPages;
 
+              // Get the saved file order to determine page order
+              const savedFileOrder = data.fileOrder || [];
+
+              // Find all page IDs for this PDF in the saved order
+              const pageIdsInOrder = savedFileOrder.filter((id) =>
+                id.startsWith(`${savedFile.id}-page-`)
+              );
+
               const pages: PdfPage[] = [];
-              for (let pageNum = 1; pageNum <= numPages; pageNum++) {
-                const pageId = `${savedFile.id}-page-${pageNum}`;
-                // Try to load pre-rendered image from persistence
+
+              // If we have a saved order, use it; otherwise use default order (1 to numPages)
+              const pageIdsToLoad =
+                pageIdsInOrder.length > 0
+                  ? pageIdsInOrder
+                  : Array.from(
+                      { length: numPages },
+                      (_, i) => `${savedFile.id}-page-${i + 1}`
+                    );
+
+              for (const pageId of pageIdsToLoad) {
+                // Extract page number from pageId (format: fileId-page-N)
+                const pageNumMatch = pageId.match(/-page-(\d+)$/);
+                if (!pageNumMatch) continue;
+
+                const pageNum = parseInt(pageNumMatch[1], 10);
+                if (pageNum < 1 || pageNum > numPages) continue;
+
+                // Try to find pre-rendered image in the loaded files
                 let imageData: string | undefined;
-                try {
-                  const result = await window.electronAPI!.loadFiles();
-                  if (result.success && result.files) {
-                    const pageFile = result.files.find((f) => f.id === pageId);
-                    if (pageFile) {
-                      imageData = pageFile.data;
-                    }
-                  }
-                } catch (e) {
-                  // Image not found, will be re-rendered if needed
+                const pageFile = data.files.find((f) => f.id === pageId);
+                if (pageFile) {
+                  imageData = pageFile.data;
                 }
 
                 // If no pre-rendered image, render it now

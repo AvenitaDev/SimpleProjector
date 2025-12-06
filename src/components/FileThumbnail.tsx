@@ -17,6 +17,7 @@ interface FileThumbnailProps {
   className?: string;
   pageNumber?: number; // For PDF pages
   fileId?: string; // File ID for loading saved thumbnails
+  preRenderedImage?: string; // Pre-rendered image data (base64) for PDF pages
 }
 
 export const FileThumbnail = ({
@@ -25,6 +26,7 @@ export const FileThumbnail = ({
   className,
   pageNumber,
   fileId,
+  preRenderedImage,
 }: FileThumbnailProps) => {
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
   const [error, setError] = useState(false);
@@ -90,6 +92,13 @@ export const FileThumbnail = ({
 
         const loadPdfThumbnail = async () => {
           try {
+            // If we have a pre-rendered image, use it directly
+            if (preRenderedImage) {
+              setThumbnailUrl(preRenderedImage);
+              setIsLoading(false);
+              return;
+            }
+
             // Wait a bit to ensure canvas is mounted
             await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -260,7 +269,7 @@ export const FileThumbnail = ({
     loadThumbnail();
 
     return cleanup;
-  }, [file, type, fileId, pageNumber]);
+  }, [file, type, fileId, pageNumber, preRenderedImage]);
 
   const getIcon = () => {
     switch (type) {
