@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
-import { ChevronDown, ChevronRight, GripVertical, X } from 'lucide-react';
-import { FileItem, PdfPage } from '../types/file';
-import { FileThumbnail } from './FileThumbnail';
-import { cn } from '../lib/utils';
+import { useState, useEffect } from "react";
+import { ChevronDown, ChevronRight, GripVertical, X } from "lucide-react";
+import { FileItem, PdfPage } from "../types/file";
+import { FileThumbnail } from "./FileThumbnail";
+import { cn } from "../lib/utils";
 import {
   DndContext,
   closestCenter,
@@ -11,15 +11,15 @@ import {
   useSensor,
   useSensors,
   DragEndEvent,
-} from '@dnd-kit/core';
+} from "@dnd-kit/core";
 import {
   arrayMove,
   SortableContext,
   sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
-} from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 interface PdfFileItemProps {
   file: FileItem;
@@ -39,7 +39,14 @@ interface SortablePageItemProps {
   fileId: string;
 }
 
-const SortablePageItem = ({ page, file, onRemove, isActive, onClick, fileId }: SortablePageItemProps) => {
+const SortablePageItem = ({
+  page,
+  file,
+  onRemove,
+  isActive,
+  onClick,
+  fileId,
+}: SortablePageItemProps) => {
   const {
     attributes,
     listeners,
@@ -69,13 +76,13 @@ const SortablePageItem = ({ page, file, onRemove, isActive, onClick, fileId }: S
       style={style}
       onClick={onClick ? handleClick : undefined}
       className={cn(
-        'flex items-center gap-3 pl-8 pr-4 py-2 bg-gray-50 border rounded',
-        'hover:border-gray-300 transition-colors',
-        isDragging && 'shadow-md',
+        "flex items-center gap-3 pl-8 pr-4 py-2 bg-gray-50 border rounded",
+        "hover:border-gray-300 transition-colors",
+        isDragging && "shadow-md",
         isActive
-          ? 'border-blue-500 border-2 bg-blue-100 shadow-sm'
-          : 'border-gray-200',
-        onClick && 'cursor-pointer'
+          ? "border-blue-500 border-2 bg-blue-100 shadow-sm"
+          : "border-gray-200",
+        onClick && "cursor-pointer"
       )}
     >
       <div
@@ -85,7 +92,7 @@ const SortablePageItem = ({ page, file, onRemove, isActive, onClick, fileId }: S
       >
         <GripVertical className="w-4 h-4" />
       </div>
-      <div className="flex-shrink-0 w-12 h-12">
+      <div className="shrink-0 w-12 h-12">
         <FileThumbnail
           file={file}
           type="document"
@@ -101,7 +108,7 @@ const SortablePageItem = ({ page, file, onRemove, isActive, onClick, fileId }: S
       </div>
       <button
         onClick={() => onRemove(page.id)}
-        className="flex-shrink-0 p-1 text-gray-400 hover:text-red-600 transition-colors"
+        className="shrink-0 p-1 text-gray-400 hover:text-red-600 transition-colors"
         aria-label="Remove page"
       >
         <X className="w-4 h-4" />
@@ -110,10 +117,17 @@ const SortablePageItem = ({ page, file, onRemove, isActive, onClick, fileId }: S
   );
 };
 
-export const PdfFileItem = ({ file, onRemove, onReorderPages, currentItem, isFileActive, onItemClick }: PdfFileItemProps) => {
+export const PdfFileItem = ({
+  file,
+  onRemove,
+  onReorderPages,
+  currentItem,
+  isFileActive,
+  onItemClick,
+}: PdfFileItemProps) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [pages, setPages] = useState<PdfPage[]>(file.pages || []);
-  
+
   // Make the PDF item itself sortable
   const {
     attributes,
@@ -154,7 +168,7 @@ export const PdfFileItem = ({ file, onRemove, onReorderPages, currentItem, isFil
     const newPages = pages.filter((p) => p.id !== pageId);
     setPages(newPages);
     onReorderPages(file.id, newPages);
-    
+
     // If no pages left, remove the entire file
     if (newPages.length === 0) {
       onRemove(file.id);
@@ -189,21 +203,19 @@ export const PdfFileItem = ({ file, onRemove, onReorderPages, currentItem, isFil
       ref={setNodeRef}
       style={mainItemStyle}
       className={cn(
-        'bg-white border rounded-lg overflow-hidden',
-        isDragging && 'shadow-lg',
+        "bg-white border rounded-lg overflow-hidden",
+        isDragging && "shadow-lg",
         shouldHighlight
-          ? 'border-blue-500 border-2 shadow-md'
-          : 'border-gray-200'
+          ? "border-blue-500 border-2 shadow-md"
+          : "border-gray-200"
       )}
     >
-      <div 
+      <div
         onClick={onItemClick ? handleFileClick : undefined}
         className={cn(
-          'flex items-center gap-4 p-4 transition-colors',
-          shouldHighlight
-            ? 'bg-blue-50 hover:bg-blue-100' 
-            : 'hover:bg-gray-50',
-          onItemClick && 'cursor-pointer'
+          "flex items-center gap-4 p-4 transition-colors",
+          shouldHighlight ? "bg-blue-50 hover:bg-blue-100" : "hover:bg-gray-50",
+          onItemClick && "cursor-pointer"
         )}
       >
         <div
@@ -215,8 +227,8 @@ export const PdfFileItem = ({ file, onRemove, onReorderPages, currentItem, isFil
         </div>
         <button
           onClick={() => setIsExpanded(!isExpanded)}
-          className="flex-shrink-0 text-gray-400 hover:text-gray-600 transition-colors"
-          aria-label={isExpanded ? 'Collapse' : 'Expand'}
+          className="shrink-0 text-gray-400 hover:text-gray-600 transition-colors"
+          aria-label={isExpanded ? "Collapse" : "Expand"}
         >
           {isExpanded ? (
             <ChevronDown className="w-5 h-5" />
@@ -224,7 +236,7 @@ export const PdfFileItem = ({ file, onRemove, onReorderPages, currentItem, isFil
             <ChevronRight className="w-5 h-5" />
           )}
         </button>
-        <div className="flex-shrink-0 w-16 h-16">
+        <div className="shrink-0 w-16 h-16">
           <FileThumbnail
             file={file.file}
             type={file.type}
@@ -238,18 +250,19 @@ export const PdfFileItem = ({ file, onRemove, onReorderPages, currentItem, isFil
             {file.name}
           </p>
           <p className="text-xs text-gray-500">
-            PDF • {file.totalPages || pages.length} {file.totalPages === 1 ? 'page' : 'pages'}
+            PDF • {file.totalPages || pages.length}{" "}
+            {file.totalPages === 1 ? "page" : "pages"}
           </p>
         </div>
         <button
           onClick={() => onRemove(file.id)}
-          className="flex-shrink-0 p-1 text-gray-400 hover:text-red-600 transition-colors"
+          className="shrink-0 p-1 text-gray-400 hover:text-red-600 transition-colors"
           aria-label="Remove file"
         >
           <X className="w-5 h-5" />
         </button>
       </div>
-      
+
       {isExpanded && pages.length > 0 && (
         <div className="border-t border-gray-200 bg-gray-50 p-2">
           <DndContext
@@ -257,7 +270,10 @@ export const PdfFileItem = ({ file, onRemove, onReorderPages, currentItem, isFil
             collisionDetection={closestCenter}
             onDragEnd={handlePageDragEnd}
           >
-            <SortableContext items={pages.map((p) => p.id)} strategy={verticalListSortingStrategy}>
+            <SortableContext
+              items={pages.map((p) => p.id)}
+              strategy={verticalListSortingStrategy}
+            >
               <div className="space-y-1">
                 {pages.map((page) => (
                   <SortablePageItem
@@ -278,4 +294,3 @@ export const PdfFileItem = ({ file, onRemove, onReorderPages, currentItem, isFil
     </div>
   );
 };
-

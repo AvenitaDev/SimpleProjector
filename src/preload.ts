@@ -112,6 +112,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('load-thumbnail', fileId),
   onLoadPersistentFiles: (callback: (data: { files: Array<{ id: string; name: string; type: string; data: string; pageNumber?: number }>; fileOrder: string[] }) => void) =>
     ipcRenderer.on('load-persistent-files', (_event, data) => callback(data)),
+  notifyFilesLoaded: () =>
+    ipcRenderer.invoke('notify-files-loaded'),
   // Export/Import project
   exportProject: (projectData: {
     settings: any;

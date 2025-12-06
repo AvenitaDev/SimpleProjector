@@ -6,22 +6,22 @@ import {
   useSensor,
   useSensors,
   DragEndEvent,
-} from '@dnd-kit/core';
+} from "@dnd-kit/core";
 import {
   arrayMove,
   SortableContext,
   sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
-} from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
-import { GripVertical, X } from 'lucide-react';
-import { FileItem, PdfPage } from '../types/file';
-import { cn } from '../lib/utils';
-import { FileThumbnail } from './FileThumbnail';
-import { PdfFileItem } from './PdfFileItem';
-import { DotLottieReact } from '@lottiefiles/dotlottie-react';
-import dragDropAnimation from '../assets/Drag & drop.lottie?url';
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { GripVertical, X } from "lucide-react";
+import { FileItem, PdfPage } from "../types/file";
+import { cn } from "../lib/utils";
+import { FileThumbnail } from "./FileThumbnail";
+import { PdfFileItem } from "./PdfFileItem";
+import { DotLottieReact } from "@lottiefiles/dotlottie-react";
+import dragDropAnimation from "../assets/Drag & drop.lottie?url";
 
 interface FileListProps {
   files: FileItem[];
@@ -38,7 +38,12 @@ interface SortableFileItemProps {
   onClick?: (fileId: string) => void;
 }
 
-const SortableFileItem = ({ file, onRemove, isActive, onClick }: SortableFileItemProps) => {
+const SortableFileItem = ({
+  file,
+  onRemove,
+  isActive,
+  onClick,
+}: SortableFileItemProps) => {
   const {
     attributes,
     listeners,
@@ -68,13 +73,13 @@ const SortableFileItem = ({ file, onRemove, isActive, onClick }: SortableFileIte
       style={style}
       onClick={onClick ? handleClick : undefined}
       className={cn(
-        'flex items-center gap-4 p-4 bg-white border rounded-lg',
-        'hover:border-gray-300 transition-colors',
-        isDragging && 'shadow-lg',
-        isActive 
-          ? 'border-blue-500 border-2 bg-blue-50 shadow-md' 
-          : 'border-gray-200',
-        onClick && 'cursor-pointer'
+        "flex items-center gap-4 p-4 bg-white border rounded-lg",
+        "hover:border-gray-300 transition-colors",
+        isDragging && "shadow-lg",
+        isActive
+          ? "border-blue-500 border-2 bg-blue-50 shadow-md"
+          : "border-gray-200",
+        onClick && "cursor-pointer"
       )}
     >
       <div
@@ -84,7 +89,7 @@ const SortableFileItem = ({ file, onRemove, isActive, onClick }: SortableFileIte
       >
         <GripVertical className="w-5 h-5" />
       </div>
-      <div className="flex-shrink-0 w-16 h-16">
+      <div className="shrink-0 w-16 h-16">
         <FileThumbnail
           file={file.file}
           type={file.type}
@@ -100,13 +105,15 @@ const SortableFileItem = ({ file, onRemove, isActive, onClick }: SortableFileIte
         <p className="text-xs text-gray-500 capitalize">
           {file.type}
           {file.pageNumber && file.totalPages && file.totalPages > 1 && (
-            <span className="ml-1">• Page {file.pageNumber}/{file.totalPages}</span>
+            <span className="ml-1">
+              • Page {file.pageNumber}/{file.totalPages}
+            </span>
           )}
         </p>
       </div>
       <button
         onClick={() => onRemove(file.id)}
-        className="flex-shrink-0 p-1 text-gray-400 hover:text-red-600 transition-colors"
+        className="shrink-0 p-1 text-gray-400 hover:text-red-600 transition-colors"
         aria-label="Remove file"
       >
         <X className="w-5 h-5" />
@@ -115,7 +122,13 @@ const SortableFileItem = ({ file, onRemove, isActive, onClick }: SortableFileIte
   );
 };
 
-export const FileList = ({ files, onReorder, onRemove, currentItem, onItemClick }: FileListProps) => {
+export const FileList = ({
+  files,
+  onReorder,
+  onRemove,
+  currentItem,
+  onItemClick,
+}: FileListProps) => {
   const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, {
@@ -156,9 +169,7 @@ export const FileList = ({ files, onReorder, onRemove, currentItem, onItemClick 
             className="w-full h-full"
           />
         </div>
-        <p className="text-lg font-medium text-gray-600">
-          No files added yet.
-        </p>
+        <p className="text-lg font-medium text-gray-600">No files added yet.</p>
         <p className="text-sm text-gray-500 mt-2">
           Drag and drop files anywhere to get started.
         </p>
@@ -172,11 +183,18 @@ export const FileList = ({ files, onReorder, onRemove, currentItem, onItemClick 
       collisionDetection={closestCenter}
       onDragEnd={handleDragEnd}
     >
-      <SortableContext items={files.map((f) => f.id)} strategy={verticalListSortingStrategy}>
+      <SortableContext
+        items={files.map((f) => f.id)}
+        strategy={verticalListSortingStrategy}
+      >
         <div className="space-y-2">
           {files.map((file) => {
             // Show PDF files with expandable pages
-            if (file.type === 'document' && file.pages && file.pages.length > 0) {
+            if (
+              file.type === "document" &&
+              file.pages &&
+              file.pages.length > 0
+            ) {
               const isFileActive = currentItem?.fileId === file.id;
               return (
                 <PdfFileItem
@@ -191,12 +209,13 @@ export const FileList = ({ files, onReorder, onRemove, currentItem, onItemClick 
               );
             }
             // Regular files
-            const isActive = currentItem?.fileId === file.id && !currentItem?.pageId;
+            const isActive =
+              currentItem?.fileId === file.id && !currentItem?.pageId;
             return (
-              <SortableFileItem 
-                key={file.id} 
-                file={file} 
-                onRemove={onRemove} 
+              <SortableFileItem
+                key={file.id}
+                file={file}
+                onRemove={onRemove}
                 isActive={isActive}
                 onClick={onItemClick ? () => onItemClick(file.id) : undefined}
               />
@@ -207,4 +226,3 @@ export const FileList = ({ files, onReorder, onRemove, currentItem, onItemClick 
     </DndContext>
   );
 };
-

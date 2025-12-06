@@ -1,23 +1,23 @@
-import { useCallback, useState } from 'react';
-import { Upload, FileImage, Video, FileText } from 'lucide-react';
-import { cn } from '../lib/utils';
-import { FileItem, FileType } from '../types/file';
+import { useCallback, useState } from "react";
+import { Upload, FileImage, Video, FileText } from "lucide-react";
+import { cn } from "../lib/utils";
+import { FileItem, FileType } from "../types/file";
 
 interface FileDropZoneProps {
   onFilesAdded: (files: FileItem[]) => void;
 }
 
 const getFileType = (file: File): FileType => {
-  if (file.type.startsWith('image/')) {
-    return 'image';
+  if (file.type.startsWith("image/")) {
+    return "image";
   }
-  if (file.type.startsWith('video/')) {
-    return 'video';
+  if (file.type.startsWith("video/")) {
+    return "video";
   }
-  if (file.type === 'application/pdf') {
-    return 'document';
+  if (file.type === "application/pdf") {
+    return "document";
   }
-  return 'image'; // default
+  return "image"; // default
 };
 
 export const FileDropZone = ({ onFilesAdded }: FileDropZoneProps) => {
@@ -64,7 +64,7 @@ export const FileDropZone = ({ onFilesAdded }: FileDropZoneProps) => {
   const handleFileInput = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       handleFiles(e.target.files);
-      e.target.value = ''; // Reset input
+      e.target.value = ""; // Reset input
     },
     [handleFiles]
   );
@@ -75,11 +75,11 @@ export const FileDropZone = ({ onFilesAdded }: FileDropZoneProps) => {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       className={cn(
-        'relative border-2 border-dashed rounded-lg p-12 transition-colors',
-        'flex flex-col items-center justify-center gap-4',
+        "relative border-2 border-dashed rounded-lg p-12 transition-colors",
+        "flex flex-col items-center justify-center gap-4",
         isDragging
-          ? 'border-primary bg-primary/5'
-          : 'border-gray-300 hover:border-gray-400 bg-gray-50'
+          ? "border-primary bg-primary/5"
+          : "border-gray-300 hover:border-gray-400 bg-gray-50"
       )}
     >
       <input
@@ -100,9 +100,7 @@ export const FileDropZone = ({ onFilesAdded }: FileDropZoneProps) => {
           <p className="text-lg font-semibold text-gray-700">
             Drag and drop files here
           </p>
-          <p className="text-sm text-gray-500 mt-2">
-            or click to browse
-          </p>
+          <p className="text-sm text-gray-500 mt-2">or click to browse</p>
         </div>
         <label
           htmlFor="file-input"
@@ -115,4 +113,3 @@ export const FileDropZone = ({ onFilesAdded }: FileDropZoneProps) => {
     </div>
   );
 };
-

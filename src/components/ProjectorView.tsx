@@ -1,12 +1,16 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
-import { FileType } from '../types/file';
-import { ProjectorSettings, defaultSettings } from '../types/settings';
-import * as pdfjsLib from 'pdfjs-dist';
-import { Maximize2, X, Minimize2 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { useEffect, useState, useRef, useCallback } from "react";
+import { FileType } from "../types/file";
+import { ProjectorSettings, defaultSettings } from "../types/settings";
+import * as pdfjsLib from "pdfjs-dist";
+import { Maximize2, X, Minimize2 } from "lucide-react";
+import { cn } from "../lib/utils";
+import pdfWorkerURL from "pdfjs-dist/build/pdf.worker.min?url";
+import "../types/electron"; // Import electron API types
 
-// Configure PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  pdfWorkerURL,
+  import.meta.url
+).toString();
 
 interface ProjectorFile {
   id: string;
@@ -14,33 +18,6 @@ interface ProjectorFile {
   type: FileType;
   data: string; // base64 data URL
   pageNumber?: number; // For PDF pages
-}
-
-declare global {
-  interface Window {
-    electronAPI?: {
-      onProjectorNavigate: (callback: (index: number) => void) => void;
-      onProjectorPlayPause: (callback: (isPlaying: boolean) => void) => void;
-      onProjectorSettings: (callback: (settings: ProjectorSettings) => void) => void;
-      onProjectorFilesUpdated: (callback: (files: ProjectorFile[]) => void) => void;
-      onProjectorFullscreenChanged: (callback: (isFullscreen: boolean) => void) => void;
-      onProjectorVolume: (callback: (volume: number) => void) => void;
-      onProjectorSeekVideo: (callback: (time: number) => void) => void;
-      removeAllListeners: (channel: string) => void;
-      getProjectorFiles: () => Promise<{ files: ProjectorFile[]; currentIndex: number }>;
-      getProjectorSettings: () => Promise<ProjectorSettings>;
-      toggleProjectorFullscreen: () => Promise<{ success: boolean; isFullscreen?: boolean }>;
-      isProjectorFullscreen: () => Promise<boolean>;
-      closeProjectorWindow: () => Promise<{ success: boolean }>;
-      notifyProjectorIndexChange: (index: number) => Promise<{ success: boolean }>;
-      sendVideoProgress: (progress: { currentTime: number; duration: number }) => Promise<{ success: boolean }>;
-      sendTimerProgress: (progress: { elapsed: number; total: number }) => Promise<{ success: boolean }>;
-      updateProjectorSettings: (settings: ProjectorSettings) => Promise<{ success: boolean }>;
-      saveSettings: (settings: ProjectorSettings) => Promise<{ success: boolean; error?: string }>;
-      loadSettings: () => Promise<ProjectorSettings | null>;
-      navigateProjector: (direction: 'next' | 'previous') => Promise<{ success: boolean; index?: number }>;
-    };
-  }
 }
 
 export const ProjectorView = () => {
@@ -71,12 +48,12 @@ export const ProjectorView = () => {
   const currentIndexRef = useRef<number>(0);
   const hasAutoStartedRef = useRef<boolean>(false);
   const previousPdfThumbnailRef = useRef<string | null>(null);
-  
+
   // Keep refs in sync with state
   useEffect(() => {
     volumeRef.current = volume;
   }, [volume]);
-  
+
   useEffect(() => {
     isPlayingRef.current = isPlaying;
   }, [isPlaying]);
@@ -89,50 +66,34 @@ export const ProjectorView = () => {
     currentIndexRef.current = currentIndex;
   }, [currentIndex]);
 
-  // Handle mouse idle detection for auto-hiding UI
   useEffect(() => {
     const handleMouseMove = () => {
-      // Reset idle state when mouse moves
       setIsIdle(false);
-      
-      // Clear existing timeout
       if (idleTimeoutRef.current) {
         clearTimeout(idleTimeoutRef.current);
       }
-      
-      // Set new timeout (3 seconds of inactivity)
       idleTimeoutRef.current = setTimeout(() => {
         setIsIdle(true);
       }, 3000);
     };
 
-    // Only track mouse movement when hovering over the window
     if (isHovered) {
-      // Reset idle state when mouse enters
       setIsIdle(false);
-      
-      // Clear any existing timeout
       if (idleTimeoutRef.current) {
         clearTimeout(idleTimeoutRef.current);
       }
-      
-      // Set initial timeout (3 seconds of inactivity)
       idleTimeoutRef.current = setTimeout(() => {
         setIsIdle(true);
       }, 3000);
-      
-      // Add mouse move listener
-      window.addEventListener('mousemove', handleMouseMove);
-      
+      window.addEventListener("mousemove", handleMouseMove);
       return () => {
-        window.removeEventListener('mousemove', handleMouseMove);
+        window.removeEventListener("mousemove", handleMouseMove);
         if (idleTimeoutRef.current) {
           clearTimeout(idleTimeoutRef.current);
           idleTimeoutRef.current = null;
         }
       };
     } else {
-      // When mouse leaves, reset idle state and clear timeout
       setIsIdle(false);
       if (idleTimeoutRef.current) {
         clearTimeout(idleTimeoutRef.current);
@@ -143,11 +104,16 @@ export const ProjectorView = () => {
 
   // Track previous index for transitions
   useEffect(() => {
-    if (currentIndex !== previousIndex && previousIndex >= 0 && files.length > 0 && currentIndex >= 0) {
+    if (
+      currentIndex !== previousIndex &&
+      previousIndex >= 0 &&
+      files.length > 0 &&
+      currentIndex >= 0
+    ) {
       // Store previous PDF thumbnail before transition starts
       if (previousIndex >= 0 && previousIndex < files.length) {
         const prevFile = files[previousIndex];
-        if (prevFile.type === 'document' && pdfThumbnail) {
+        if (prevFile.type === "document" && pdfThumbnail) {
           previousPdfThumbnailRef.current = pdfThumbnail;
         }
       }
@@ -188,7 +154,7 @@ export const ProjectorView = () => {
     let hash = 0;
     for (let i = 0; i < str.length; i++) {
       const char = str.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
+      hash = (hash << 5) - hash + char;
       hash = hash & hash; // Convert to 32-bit integer
     }
     return hash.toString();
@@ -199,13 +165,23 @@ export const ProjectorView = () => {
     const loadData = async () => {
       if (window.electronAPI) {
         try {
-          const [filesResult, settingsResult, fullscreenState, persistentSettings] = await Promise.all([
+          const [
+            filesResult,
+            settingsResult,
+            fullscreenState,
+            persistentSettings,
+          ] = await Promise.all([
             window.electronAPI.getProjectorFiles(),
             window.electronAPI.getProjectorSettings(),
             window.electronAPI.isProjectorFullscreen(),
             window.electronAPI.loadSettings(),
           ]);
-          setFiles(filesResult.files);
+          setFiles(
+            filesResult.files.map((file) => ({
+              ...file,
+              type: file.type as FileType,
+            }))
+          );
           setCurrentIndex(filesResult.currentIndex);
           setIsFullscreen(fullscreenState);
           if (settingsResult) {
@@ -235,7 +211,7 @@ export const ProjectorView = () => {
             setShowWelcome(defaultSettings.showWelcomeDialog);
           }
         } catch (error) {
-          console.error('Error loading data:', error);
+          console.error("Error loading data:", error);
           // Use defaults on error
           setSettings(defaultSettings);
           setShowWelcome(defaultSettings.showWelcomeDialog);
@@ -277,7 +253,7 @@ export const ProjectorView = () => {
             const filesResult = await window.electronAPI.getProjectorFiles();
             setCurrentIndex(filesResult.currentIndex);
           } catch (error) {
-            console.error('Error reloading projector index:', error);
+            console.error("Error reloading projector index:", error);
           }
         }
       };
@@ -295,42 +271,46 @@ export const ProjectorView = () => {
         if (!video) {
           return;
         }
-        
+
         // Use refs to get current values (not stale closure values)
         const currentFiles = filesRef.current;
         const currentIdx = currentIndexRef.current;
-        
-        if (currentFiles.length === 0 || currentIdx < 0 || currentIdx >= currentFiles.length) {
+
+        if (
+          currentFiles.length === 0 ||
+          currentIdx < 0 ||
+          currentIdx >= currentFiles.length
+        ) {
           return;
         }
-        
+
         const currentFile = currentFiles[currentIdx];
-        if (currentFile.type !== 'video') {
+        if (currentFile.type !== "video") {
           return;
         }
-        
+
         isSeekingRef.current = true;
-        
+
         // Clamp time to valid range
         let clampedTime = Math.max(0, time);
         if (video.duration && !isNaN(video.duration) && video.duration > 0) {
           clampedTime = Math.min(clampedTime, video.duration);
         }
-        
+
         // Function to perform the seek
         const performSeek = () => {
           // Store current playing state
           const wasPlaying = !video.paused;
-          
+
           // If video is playing, pause it temporarily to ensure seek works
           if (wasPlaying) {
             video.pause();
           }
-          
+
           // Set currentTime
           try {
             video.currentTime = clampedTime;
-            
+
             // If video was playing, resume playback after a brief moment
             if (wasPlaying) {
               // Use requestAnimationFrame to ensure the seek is processed
@@ -339,7 +319,7 @@ export const ProjectorView = () => {
               });
             }
           } catch (error) {
-            console.error('Error setting video currentTime:', error);
+            console.error("Error setting video currentTime:", error);
             isSeekingRef.current = false;
             // Resume playback if it was playing
             if (wasPlaying) {
@@ -347,27 +327,30 @@ export const ProjectorView = () => {
             }
           }
         };
-        
+
         // If video has metadata loaded, seek immediately
-        if (video.readyState >= 1) { // HAVE_METADATA or higher
+        if (video.readyState >= 1) {
+          // HAVE_METADATA or higher
           performSeek();
         } else {
           // Wait for metadata to load
           const handleLoadedMetadata = () => {
             performSeek();
-            video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+            video.removeEventListener("loadedmetadata", handleLoadedMetadata);
           };
-          video.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true });
+          video.addEventListener("loadedmetadata", handleLoadedMetadata, {
+            once: true,
+          });
         }
-        
+
         // Reset seeking flag after seek completes
         const handleSeeked = () => {
           isSeekingRef.current = false;
         };
-        
+
         // Listen for seeked event
-        video.addEventListener('seeked', handleSeeked, { once: true });
-        
+        video.addEventListener("seeked", handleSeeked, { once: true });
+
         // Fallback: reset after timeout
         setTimeout(() => {
           isSeekingRef.current = false;
@@ -384,13 +367,13 @@ export const ProjectorView = () => {
 
       return () => {
         if (window.electronAPI) {
-          window.electronAPI.removeAllListeners('projector-navigate');
-          window.electronAPI.removeAllListeners('projector-play-pause');
-          window.electronAPI.removeAllListeners('projector-settings');
-          window.electronAPI.removeAllListeners('projector-files-updated');
-          window.electronAPI.removeAllListeners('projector-fullscreen-changed');
-          window.electronAPI.removeAllListeners('projector-volume');
-          window.electronAPI.removeAllListeners('projector-seek-video');
+          window.electronAPI.removeAllListeners("projector-navigate");
+          window.electronAPI.removeAllListeners("projector-play-pause");
+          window.electronAPI.removeAllListeners("projector-settings");
+          window.electronAPI.removeAllListeners("projector-files-updated");
+          window.electronAPI.removeAllListeners("projector-fullscreen-changed");
+          window.electronAPI.removeAllListeners("projector-volume");
+          window.electronAPI.removeAllListeners("projector-seek-video");
         }
       };
     }
@@ -414,25 +397,28 @@ export const ProjectorView = () => {
       setIsPlaying(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [files.length, settings.enableTimeBetweenElements, settings.autoPlayVideos, currentIndex]);
+  }, [
+    files.length,
+    settings.enableTimeBetweenElements,
+    settings.autoPlayVideos,
+    currentIndex,
+  ]);
 
   const handleToggleFullscreen = async () => {
     if (window.electronAPI) {
       try {
         await window.electronAPI.toggleProjectorFullscreen();
       } catch (error) {
-        console.error('Error toggling fullscreen:', error);
+        console.error("Error toggling fullscreen:", error);
       }
     }
   };
 
   const handleDismissWelcome = async () => {
     setShowWelcome(false);
-    
-    // If "don't show again" is checked, disable the welcome dialog setting
+
     if (dontShowAgain && window.electronAPI) {
       try {
-        // Load current settings first to ensure we have all settings
         const currentSettings = await window.electronAPI.loadSettings();
         const updatedSettings = {
           ...defaultSettings,
@@ -440,17 +426,11 @@ export const ProjectorView = () => {
           ...settings,
           showWelcomeDialog: false,
         };
-        // Update projector settings first (for immediate effect)
         await window.electronAPI.updateProjectorSettings(updatedSettings);
-        // Then save settings to ensure persistence
-        const saveResult = await window.electronAPI.saveSettings(updatedSettings);
-        if (saveResult.success) {
-          setSettings(updatedSettings);
-        } else {
-          console.error('Error saving welcome dialog preference:', saveResult.error);
-        }
+        await window.electronAPI.saveSettings(updatedSettings);
+        setSettings(updatedSettings);
       } catch (error) {
-        console.error('Error saving welcome dialog preference:', error);
+        console.error("Error saving welcome dialog preference:", error);
       }
     }
   };
@@ -460,49 +440,43 @@ export const ProjectorView = () => {
       try {
         await window.electronAPI.closeProjectorWindow();
       } catch (error) {
-        console.error('Error closing projector:', error);
+        console.error("Error closing projector:", error);
       }
     }
   };
 
   const handleClick = (event: React.MouseEvent) => {
-    // Don't navigate if clicking on buttons or welcome dialog
     if (showWelcome) return;
-    
-    // Check if click is on a button, control element, or draggable region
+
     const target = event.target as HTMLElement;
     if (
-      target.closest('button') || 
+      target.closest("button") ||
       target.closest('[style*="no-drag"]') ||
       target.closest('[style*="drag"]') ||
-      (target.getAttribute('style')?.includes('drag'))
+      target.getAttribute("style")?.includes("drag")
     ) {
       return;
     }
 
-    // Don't navigate if clicking in the top draggable region (first 32px)
     if (!isFullscreen && event.clientY <= 32) {
       return;
     }
 
     if (window.electronAPI) {
       if (event.button === 0) {
-        // Left click - navigate forward
-        window.electronAPI.navigateProjector('next').catch((error) => {
-          console.error('Error navigating forward:', error);
+        window.electronAPI.navigateProjector("next").catch((error) => {
+          console.error("Error navigating forward:", error);
         });
       } else if (event.button === 2) {
-        // Right click - navigate backward
-        event.preventDefault(); // Prevent context menu
-        window.electronAPI.navigateProjector('previous').catch((error) => {
-          console.error('Error navigating backward:', error);
+        event.preventDefault();
+        window.electronAPI.navigateProjector("previous").catch((error) => {
+          console.error("Error navigating backward:", error);
         });
       }
     }
   };
 
   const handleContextMenu = (event: React.MouseEvent) => {
-    // Prevent context menu on right click
     event.preventDefault();
   };
 
@@ -515,8 +489,8 @@ export const ProjectorView = () => {
     if (window.electronAPI) {
       isAutoPlayChangeRef.current = true;
       // Use the main process navigation handler which handles random order correctly
-      window.electronAPI.navigateProjector('next').catch((error) => {
-        console.error('Error navigating projector:', error);
+      window.electronAPI.navigateProjector("next").catch((error) => {
+        console.error("Error navigating projector:", error);
         // Fallback to local navigation if IPC fails
         setCurrentIndex((prev) => {
           if (prev < 0) return -1; // Already showing background
@@ -573,7 +547,7 @@ export const ProjectorView = () => {
     ) {
       const currentFile = files[currentIndex];
       // Only use timer for images and documents, not videos
-      if (currentFile.type !== 'video') {
+      if (currentFile.type !== "video") {
         playIntervalRef.current = setInterval(() => {
           advanceToNext();
         }, settings.timeBetweenElements);
@@ -586,25 +560,37 @@ export const ProjectorView = () => {
         playIntervalRef.current = null;
       }
     };
-  }, [isPlaying, files, currentIndex, settings.timeBetweenElements, settings.enableTimeBetweenElements, advanceToNext]);
+  }, [
+    isPlaying,
+    files,
+    currentIndex,
+    settings.timeBetweenElements,
+    settings.enableTimeBetweenElements,
+    advanceToNext,
+  ]);
 
   // Handle video ended event to advance to next file
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || files.length === 0 || currentIndex < 0 || currentIndex >= files.length) {
+    if (
+      !video ||
+      files.length === 0 ||
+      currentIndex < 0 ||
+      currentIndex >= files.length
+    ) {
       return;
     }
 
     const currentFile = files[currentIndex];
-    if (currentFile.type === 'video' && isPlaying) {
+    if (currentFile.type === "video" && isPlaying) {
       const handleVideoEnded = () => {
         advanceToNext();
       };
 
-      video.addEventListener('ended', handleVideoEnded);
+      video.addEventListener("ended", handleVideoEnded);
 
       return () => {
-        video.removeEventListener('ended', handleVideoEnded);
+        video.removeEventListener("ended", handleVideoEnded);
       };
     }
   }, [currentIndex, files, isPlaying, advanceToNext]);
@@ -613,26 +599,32 @@ export const ProjectorView = () => {
   useEffect(() => {
     if (isAutoPlayChangeRef.current && window.electronAPI) {
       isAutoPlayChangeRef.current = false;
-      window.electronAPI.notifyProjectorIndexChange(currentIndex).catch(console.error);
+      window.electronAPI
+        .notifyProjectorIndexChange(currentIndex)
+        .catch(console.error);
     }
   }, [currentIndex]);
 
   // Handle PDF thumbnail generation
   useEffect(() => {
-    if (files.length === 0 || currentIndex < 0 || currentIndex >= files.length) {
+    if (
+      files.length === 0 ||
+      currentIndex < 0 ||
+      currentIndex >= files.length
+    ) {
       setPdfThumbnail(null);
       return;
     }
 
     const currentFile = files[currentIndex];
-    if (currentFile.type === 'document') {
+    if (currentFile.type === "document") {
       const generatePdfThumbnail = async () => {
         try {
           const canvas = canvasRef.current;
           if (!canvas) return;
 
           // If data is already a rendered page image, use it directly
-          if (currentFile.data.startsWith('data:image')) {
+          if (currentFile.data.startsWith("data:image")) {
             setPdfThumbnail(currentFile.data);
             return;
           }
@@ -657,7 +649,7 @@ export const ProjectorView = () => {
           canvas.width = scaledViewport.width;
           canvas.height = scaledViewport.height;
 
-          const context = canvas.getContext('2d');
+          const context = canvas.getContext("2d");
           if (!context) return;
 
           await page.render({
@@ -666,10 +658,10 @@ export const ProjectorView = () => {
             canvas: canvas,
           }).promise;
 
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
           setPdfThumbnail(dataUrl);
         } catch (error) {
-          console.error('Error generating PDF thumbnail:', error);
+          console.error("Error generating PDF thumbnail:", error);
           setPdfThumbnail(null);
         }
       };
@@ -683,16 +675,21 @@ export const ProjectorView = () => {
   // Handle video source loading (only when file changes)
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || files.length === 0 || currentIndex < 0 || currentIndex >= files.length) {
+    if (
+      !video ||
+      files.length === 0 ||
+      currentIndex < 0 ||
+      currentIndex >= files.length
+    ) {
       if (video) {
         video.pause();
-        video.src = '';
+        video.src = "";
       }
       return;
     }
 
     const currentFile = files[currentIndex];
-    if (currentFile.type === 'video') {
+    if (currentFile.type === "video") {
       // Only reload if the source actually changed
       if (video.src !== currentFile.data) {
         video.src = currentFile.data;
@@ -716,9 +713,14 @@ export const ProjectorView = () => {
   // Update video volume when volume changes (without reloading)
   useEffect(() => {
     const video = videoRef.current;
-    if (video && files.length > 0 && currentIndex >= 0 && currentIndex < files.length) {
+    if (
+      video &&
+      files.length > 0 &&
+      currentIndex >= 0 &&
+      currentIndex < files.length
+    ) {
       const currentFile = files[currentIndex];
-      if (currentFile.type === 'video') {
+      if (currentFile.type === "video") {
         video.volume = volume;
       }
     }
@@ -727,12 +729,17 @@ export const ProjectorView = () => {
   // Control video play/pause based on isPlaying state (without reloading)
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || files.length === 0 || currentIndex < 0 || currentIndex >= files.length) {
+    if (
+      !video ||
+      files.length === 0 ||
+      currentIndex < 0 ||
+      currentIndex >= files.length
+    ) {
       return;
     }
 
     const currentFile = files[currentIndex];
-    if (currentFile.type === 'video') {
+    if (currentFile.type === "video") {
       if (isPlaying) {
         video.play().catch(console.error);
       } else {
@@ -750,12 +757,17 @@ export const ProjectorView = () => {
     }
 
     const video = videoRef.current;
-    if (!video || files.length === 0 || currentIndex < 0 || currentIndex >= files.length) {
+    if (
+      !video ||
+      files.length === 0 ||
+      currentIndex < 0 ||
+      currentIndex >= files.length
+    ) {
       return;
     }
 
     const currentFile = files[currentIndex];
-    if (currentFile.type !== 'video') {
+    if (currentFile.type !== "video") {
       return;
     }
 
@@ -766,12 +778,14 @@ export const ProjectorView = () => {
           return;
         }
         if (video && video.duration && window.electronAPI) {
-          window.electronAPI.sendVideoProgress({
-            currentTime: video.currentTime || 0,
-            duration: video.duration,
-          }).catch(() => {
-            // Silently handle errors
-          });
+          window.electronAPI
+            .sendVideoProgress({
+              currentTime: video.currentTime || 0,
+              duration: video.duration,
+            })
+            .catch(() => {
+              // Silently handle errors
+            });
         }
       } catch (error) {
         // Silently handle errors
@@ -806,7 +820,7 @@ export const ProjectorView = () => {
       currentIndex < files.length
     ) {
       const currentFile = files[currentIndex];
-      if (currentFile.type !== 'video') {
+      if (currentFile.type !== "video") {
         // Ensure timer start time is set
         if (timerStartTimeRef.current === null) {
           timerStartTimeRef.current = Date.now();
@@ -816,13 +830,15 @@ export const ProjectorView = () => {
           try {
             if (timerStartTimeRef.current !== null && window.electronAPI) {
               const elapsed = Date.now() - timerStartTimeRef.current;
-              window.electronAPI.sendTimerProgress({
-                elapsed: Math.min(elapsed, settings.timeBetweenElements),
-                total: settings.timeBetweenElements,
-              }).catch(console.error);
+              window.electronAPI
+                .sendTimerProgress({
+                  elapsed: Math.min(elapsed, settings.timeBetweenElements),
+                  total: settings.timeBetweenElements,
+                })
+                .catch(console.error);
             }
           } catch (error) {
-            console.error('Error sending timer progress:', error);
+            console.error("Error sending timer progress:", error);
           }
         };
 
@@ -838,16 +854,22 @@ export const ProjectorView = () => {
         timerProgressIntervalRef.current = null;
       }
     };
-  }, [isPlaying, currentIndex, files, settings.enableTimeBetweenElements, settings.timeBetweenElements]);
+  }, [
+    isPlaying,
+    currentIndex,
+    files,
+    settings.enableTimeBetweenElements,
+    settings.timeBetweenElements,
+  ]);
 
   // Get background style
   const getBackgroundStyle = (): React.CSSProperties => {
     if (settings.backgroundImage) {
       return {
         backgroundImage: `url(${settings.backgroundImage})`,
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-        backgroundRepeat: 'no-repeat',
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+        backgroundRepeat: "no-repeat",
       };
     }
     return {
@@ -859,7 +881,7 @@ export const ProjectorView = () => {
   if (files.length === 0 || currentIndex === -1) {
     return (
       <div
-        className={`w-screen h-screen relative ${isIdle ? 'cursor-none' : ''}`}
+        className={`w-screen h-screen relative ${isIdle ? "cursor-none" : ""}`}
         style={getBackgroundStyle()}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
@@ -870,7 +892,7 @@ export const ProjectorView = () => {
         {!isFullscreen && (
           <div
             className="absolute top-0 left-0 right-0 h-8 bg-transparent z-50"
-            style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+            style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
           />
         )}
 
@@ -879,7 +901,9 @@ export const ProjectorView = () => {
           <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-50">
             <div className="bg-gray-900 rounded-lg p-8 max-w-md mx-4 border border-gray-700">
               <div className="flex justify-between items-start mb-4">
-                <h2 className="text-2xl font-bold text-white">Welcome to Projector Mode</h2>
+                <h2 className="text-2xl font-bold text-white">
+                  Welcome to Projector Mode
+                </h2>
                 <button
                   onClick={handleDismissWelcome}
                   className="text-gray-400 hover:text-white transition-colors"
@@ -894,10 +918,16 @@ export const ProjectorView = () => {
                 </p>
                 <ul className="space-y-2 list-disc list-inside">
                   <li>
-                    <strong className="text-white">Fullscreen Mode:</strong> Press <kbd className="px-2 py-1 bg-gray-800 rounded text-sm">F11</kbd> or click the button below
+                    <strong className="text-white">Fullscreen Mode:</strong>{" "}
+                    Press{" "}
+                    <kbd className="px-2 py-1 bg-gray-800 rounded text-sm">
+                      F11
+                    </kbd>{" "}
+                    or click the button below
                   </li>
                   <li>
-                    <strong className="text-white">Window Mode:</strong> Drag the window by the top bar to move it around
+                    <strong className="text-white">Window Mode:</strong> Drag
+                    the window by the top bar to move it around
                   </li>
                 </ul>
                 <div className="flex items-center gap-2 pt-2">
@@ -908,7 +938,10 @@ export const ProjectorView = () => {
                     onChange={(e) => setDontShowAgain(e.target.checked)}
                     className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 focus:ring-2"
                   />
-                  <label htmlFor="dont-show-again" className="text-sm text-gray-300 cursor-pointer">
+                  <label
+                    htmlFor="dont-show-again"
+                    className="text-sm text-gray-300 cursor-pointer"
+                  >
                     Don't show this message again
                   </label>
                 </div>
@@ -933,19 +966,19 @@ export const ProjectorView = () => {
         )}
 
         {/* Hover controls */}
-        <div 
+        <div
           className={`absolute top-4 right-4 flex gap-2 z-50 transition-all duration-200 ${
             isHovered && !showWelcome && !isIdle
-              ? 'opacity-100 translate-y-0 delay-100' 
-              : 'opacity-0 translate-y-[-10px] pointer-events-none delay-0'
+              ? "opacity-100 translate-y-0 delay-100"
+              : "opacity-0 translate-y-[-10px] pointer-events-none delay-0"
           }`}
-          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
         >
           <button
             onClick={handleToggleFullscreen}
             className="p-3 bg-black/70 hover:bg-black/90 text-white rounded-lg transition-all backdrop-blur-sm"
-            aria-label={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
-            title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+            aria-label={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
+            title={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
           >
             {isFullscreen ? (
               <Minimize2 className="w-5 h-5" />
@@ -968,12 +1001,7 @@ export const ProjectorView = () => {
 
   const currentFile = files[currentIndex];
   if (!currentFile) {
-    return (
-      <div
-        className="w-screen h-screen"
-        style={getBackgroundStyle()}
-      />
-    );
+    return <div className="w-screen h-screen" style={getBackgroundStyle()} />;
   }
 
   // Helper function to render a file
@@ -985,30 +1013,36 @@ export const ProjectorView = () => {
   ) => {
     // For exiting files: only apply exit animation when shouldAnimate is true
     // This prevents the blink by showing the file first, then animating it out
-    const transitionClass = settings.transitionType === 'none'
-      ? ''
-      : isExiting
-      ? (shouldAnimate ? cn(
-          settings.transitionType === 'fade' && 'transition-fade-exit',
-          settings.transitionType === 'slide' && 'transition-slide-exit',
-          settings.transitionType === 'zoom' && 'transition-zoom-exit',
-          settings.transitionType === 'blur' && 'transition-blur-exit',
-          settings.transitionType === 'rotate' && 'transition-rotate-exit'
-        ) : '')
-      : cn(
-          settings.transitionType === 'fade' && 'transition-fade-enter',
-          settings.transitionType === 'slide' && 'transition-slide-enter',
-          settings.transitionType === 'zoom' && 'transition-zoom-enter',
-          settings.transitionType === 'blur' && 'transition-blur-enter',
-          settings.transitionType === 'rotate' && 'transition-rotate-enter'
-        );
+    const transitionClass =
+      settings.transitionType === "none"
+        ? ""
+        : isExiting
+          ? shouldAnimate
+            ? cn(
+                settings.transitionType === "fade" && "transition-fade-exit",
+                settings.transitionType === "slide" && "transition-slide-exit",
+                settings.transitionType === "zoom" && "transition-zoom-exit",
+                settings.transitionType === "blur" && "transition-blur-exit",
+                settings.transitionType === "rotate" && "transition-rotate-exit"
+              )
+            : ""
+          : cn(
+              settings.transitionType === "fade" && "transition-fade-enter",
+              settings.transitionType === "slide" && "transition-slide-enter",
+              settings.transitionType === "zoom" && "transition-zoom-enter",
+              settings.transitionType === "blur" && "transition-blur-enter",
+              settings.transitionType === "rotate" && "transition-rotate-enter"
+            );
 
     return (
       <div
-        key={`${file.id}-${isExiting ? 'exit' : 'enter'}`}
-        className={cn('absolute inset-0 flex items-center justify-center', transitionClass)}
+        key={`${file.id}-${isExiting ? "exit" : "enter"}`}
+        className={cn(
+          "absolute inset-0 flex items-center justify-center",
+          transitionClass
+        )}
       >
-        {file.type === 'image' && (
+        {file.type === "image" && (
           <img
             src={file.data}
             alt={file.name}
@@ -1016,7 +1050,7 @@ export const ProjectorView = () => {
           />
         )}
 
-        {file.type === 'video' && !isExiting && (
+        {file.type === "video" && !isExiting && (
           <video
             ref={videoRef}
             className="w-screen h-screen"
@@ -1027,7 +1061,7 @@ export const ProjectorView = () => {
           />
         )}
 
-        {file.type === 'document' && thumbnail && (
+        {file.type === "document" && thumbnail && (
           <img
             src={thumbnail}
             alt={file.name}
@@ -1035,7 +1069,7 @@ export const ProjectorView = () => {
           />
         )}
 
-        {file.type === 'document' && !thumbnail && (
+        {file.type === "document" && !thumbnail && (
           <div className="text-white text-center">
             <p className="text-2xl mb-4">Loading PDF...</p>
             <p className="text-lg">{file.name}</p>
@@ -1045,15 +1079,25 @@ export const ProjectorView = () => {
     );
   };
 
-  const previousFile = previousIndex >= 0 && previousIndex < files.length ? files[previousIndex] : null;
+  const previousFile =
+    previousIndex >= 0 && previousIndex < files.length
+      ? files[previousIndex]
+      : null;
   // Show previous file when index changes, NOT when isTransitioning is true
   // This prevents the blink by ensuring the file is visible before the animation starts
-  const showPreviousFile = settings.transitionType !== 'none' && previousFile && previousIndex !== currentIndex;
+  const showPreviousFile =
+    settings.transitionType !== "none" &&
+    previousFile &&
+    previousIndex !== currentIndex;
 
   return (
     <div
-      className={`w-screen h-screen flex items-center justify-center overflow-hidden relative ${isIdle ? 'cursor-none' : ''}`}
-      style={settings.showBackgroundWithFiles ? getBackgroundStyle() : { backgroundColor: '#000000' }}
+      className={`w-screen h-screen flex items-center justify-center overflow-hidden relative ${isIdle ? "cursor-none" : ""}`}
+      style={
+        settings.showBackgroundWithFiles
+          ? getBackgroundStyle()
+          : { backgroundColor: "#000000" }
+      }
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onMouseDown={handleClick}
@@ -1063,7 +1107,7 @@ export const ProjectorView = () => {
       {!isFullscreen && (
         <div
           className="absolute top-0 left-0 right-0 h-8 bg-transparent z-50"
-          style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+          style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
         />
       )}
 
@@ -1072,7 +1116,9 @@ export const ProjectorView = () => {
         <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-50">
           <div className="bg-gray-900 rounded-lg p-8 max-w-md mx-4 border border-gray-700">
             <div className="flex justify-between items-start mb-4">
-              <h2 className="text-2xl font-bold text-white">Welcome to Projector Mode</h2>
+              <h2 className="text-2xl font-bold text-white">
+                Welcome to Projector Mode
+              </h2>
               <button
                 onClick={handleDismissWelcome}
                 className="text-gray-400 hover:text-white transition-colors"
@@ -1082,15 +1128,18 @@ export const ProjectorView = () => {
               </button>
             </div>
             <div className="space-y-4 text-gray-300">
-              <p className="text-lg">
-                You can use the projector in two modes:
-              </p>
+              <p className="text-lg">You can use the projector in two modes:</p>
               <ul className="space-y-2 list-disc list-inside">
                 <li>
-                  <strong className="text-white">Fullscreen Mode:</strong> Press <kbd className="px-2 py-1 bg-gray-800 rounded text-sm">F11</kbd> or click the button below
+                  <strong className="text-white">Fullscreen Mode:</strong> Press{" "}
+                  <kbd className="px-2 py-1 bg-gray-800 rounded text-sm">
+                    F11
+                  </kbd>{" "}
+                  or click the button below
                 </li>
                 <li>
-                  <strong className="text-white">Window Mode:</strong> Drag the window by the top bar to move it around
+                  <strong className="text-white">Window Mode:</strong> Drag the
+                  window by the top bar to move it around
                 </li>
               </ul>
               <div className="flex items-center gap-2 pt-2">
@@ -1101,7 +1150,10 @@ export const ProjectorView = () => {
                   onChange={(e) => setDontShowAgain(e.target.checked)}
                   className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 focus:ring-2"
                 />
-                <label htmlFor="dont-show-again-2" className="text-sm text-gray-300 cursor-pointer">
+                <label
+                  htmlFor="dont-show-again-2"
+                  className="text-sm text-gray-300 cursor-pointer"
+                >
                   Don't show this message again
                 </label>
               </div>
@@ -1128,38 +1180,37 @@ export const ProjectorView = () => {
       <canvas ref={canvasRef} className="hidden" />
 
       {/* Previous file (exiting) */}
-      {showPreviousFile && previousFile && (
+      {showPreviousFile &&
+        previousFile &&
         renderFile(
           previousFile,
-          previousFile.type === 'document' 
-            ? (previousPdfThumbnailRef.current || (previousFile.data.startsWith('data:image') ? previousFile.data : null))
+          previousFile.type === "document"
+            ? previousPdfThumbnailRef.current ||
+                (previousFile.data.startsWith("data:image")
+                  ? previousFile.data
+                  : null)
             : null,
           true,
           isTransitioning // Only animate when isTransitioning is true (prevents blink)
-        )
-      )}
+        )}
 
       {/* Current file (entering) */}
-      {renderFile(
-        currentFile,
-        pdfThumbnail,
-        false
-      )}
+      {renderFile(currentFile, pdfThumbnail, false)}
 
       {/* Hover controls */}
-      <div 
+      <div
         className={`absolute top-4 right-4 flex gap-2 z-50 transition-all duration-200 ${
           isHovered && !showWelcome && !isIdle
-            ? 'opacity-100 translate-y-0 delay-100' 
-            : 'opacity-0 translate-y-[-10px] pointer-events-none delay-0'
+            ? "opacity-100 translate-y-0 delay-100"
+            : "opacity-0 translate-y-[-10px] pointer-events-none delay-0"
         }`}
-        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
         <button
           onClick={handleToggleFullscreen}
           className="p-3 bg-black/70 hover:bg-black/90 text-white rounded-lg transition-all backdrop-blur-sm"
-          aria-label={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
-          title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+          aria-label={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
+          title={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
         >
           {isFullscreen ? (
             <Minimize2 className="w-5 h-5" />
@@ -1179,4 +1230,3 @@ export const ProjectorView = () => {
     </div>
   );
 };
-

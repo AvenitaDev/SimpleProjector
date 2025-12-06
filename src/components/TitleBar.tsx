@@ -1,25 +1,27 @@
-import { X, Upload } from 'lucide-react';
-import { Settings } from './Settings';
-import { ProjectorSettings } from '../types/settings';
-import { FileItem } from '../types/file';
-
-declare global {
-  interface Window {
-    electronAPI?: {
-      windowClose: () => Promise<{ success: boolean }>;
-    };
-  }
-}
+import { X, Upload } from "lucide-react";
+import { Settings } from "./Settings";
+import { ProjectorSettings } from "../types/settings";
+import { FileItem } from "../types/file";
+import "../types/electron"; // Import electron API types
 
 interface TitleBarProps {
   settings: ProjectorSettings;
   onSettingsChange: (settings: ProjectorSettings) => void;
   onUploadClick: () => void;
   files: FileItem[];
-  onLoadProject: (files: FileItem[], settings: ProjectorSettings) => Promise<void>;
+  onLoadProject: (
+    files: FileItem[],
+    settings: ProjectorSettings
+  ) => Promise<void>;
 }
 
-export const TitleBar = ({ settings, onSettingsChange, onUploadClick, files, onLoadProject }: TitleBarProps) => {
+export const TitleBar = ({
+  settings,
+  onSettingsChange,
+  onUploadClick,
+  files,
+  onLoadProject,
+}: TitleBarProps) => {
   const handleClose = async () => {
     if (window.electronAPI) {
       await window.electronAPI.windowClose();
@@ -39,8 +41,8 @@ export const TitleBar = ({ settings, onSettingsChange, onUploadClick, files, onL
         >
           <Upload className="w-4 h-4" />
         </button>
-        <Settings 
-          settings={settings} 
+        <Settings
+          settings={settings}
           onSettingsChange={onSettingsChange}
           files={files}
           onLoadProject={onLoadProject}
@@ -56,4 +58,3 @@ export const TitleBar = ({ settings, onSettingsChange, onUploadClick, files, onL
     </div>
   );
 };
-

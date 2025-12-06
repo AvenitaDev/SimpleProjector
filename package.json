@@ -2,7 +2,7 @@
   "name": "SimpleProjector",
   "productName": "SimpleProjector",
   "version": "1.0.0",
-  "description": "My Electron application description",
+  "description": "A simple projector for your important presentations",
   "main": ".vite/build/main.js",
   "scripts": {
     "start": "electron-forge start",
@@ -57,7 +57,7 @@
     "clsx": "^2.1.1",
     "electron-squirrel-startup": "^1.0.1",
     "lucide-react": "^0.554.0",
-    "pdfjs-dist": "^5.4.394",
+    "pdfjs-dist": "^5.4.449",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "tailwind-merge": "^3.4.0"

@@ -1,23 +1,43 @@
-import { Settings as SettingsIcon, X, Info, Download, Upload } from 'lucide-react';
-import { useState, useRef, useEffect } from 'react';
-import { ProjectorSettings } from '../types/settings';
-import { cn } from '../lib/utils';
-import { FileItem } from '../types/file';
+import {
+  Settings as SettingsIcon,
+  X,
+  Info,
+  Download,
+  Upload,
+} from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { ProjectorSettings } from "../types/settings";
+import { cn } from "../lib/utils";
+import { FileItem } from "../types/file";
+import * as pdfjsLib from "pdfjs-dist";
+import pdfWorkerURL from "pdfjs-dist/build/pdf.worker.min?url";
+import "../types/electron";
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  pdfWorkerURL,
+  import.meta.url
+).toString();
 
 interface SettingsProps {
   settings: ProjectorSettings;
   onSettingsChange: (settings: ProjectorSettings) => void;
   files: FileItem[];
-  onLoadProject: (files: FileItem[], settings: ProjectorSettings) => Promise<void>;
+  onLoadProject: (
+    files: FileItem[],
+    settings: ProjectorSettings
+  ) => Promise<void>;
 }
 
-// Extend the global Window interface if needed
-// The electronAPI is already defined in App.tsx
-
-export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: SettingsProps) => {
+export const Settings = ({
+  settings,
+  onSettingsChange,
+  files,
+  onLoadProject,
+}: SettingsProps) => {
   const [isOpen, setIsOpen] = useState(false);
   const [isAnimating, setIsAnimating] = useState(false);
-  const [localSettings, setLocalSettings] = useState<ProjectorSettings>(settings);
+  const [localSettings, setLocalSettings] =
+    useState<ProjectorSettings>(settings);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const backgroundImageInputRef = useRef<HTMLInputElement>(null);
@@ -31,19 +51,17 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
       isUpdatingFromLocalRef.current = false;
       return;
     }
-    
+
     // Ensure random is disabled if loop is disabled
-    // Ensure auto-play videos is disabled if auto-advance is disabled
-    // Ensure showWelcomeDialog has a default value if undefined
-    // Ensure transitionType has a default value if undefined
-    // Ensure bootWindowState has a default value if undefined
     const syncedSettings = {
       ...settings,
       random: settings.loop ? settings.random : false,
-      autoPlayVideos: settings.enableTimeBetweenElements ? settings.autoPlayVideos : false,
+      autoPlayVideos: settings.enableTimeBetweenElements
+        ? settings.autoPlayVideos
+        : false,
       showWelcomeDialog: settings.showWelcomeDialog ?? true,
-      transitionType: settings.transitionType ?? 'fade',
-      bootWindowState: settings.bootWindowState ?? 'normal',
+      transitionType: settings.transitionType ?? "fade",
+      bootWindowState: settings.bootWindowState ?? "normal",
     };
     setLocalSettings(syncedSettings);
   }, [settings]);
@@ -56,7 +74,9 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
     }
   }, [localSettings, isOpen, onSettingsChange]);
 
-  const handleBackgroundImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleBackgroundImageChange = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
     const file = e.target.files?.[0];
     if (!file) {
       setLocalSettings((prev) => ({ ...prev, backgroundImage: null }));
@@ -76,7 +96,7 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
   const handleRemoveBackgroundImage = () => {
     setLocalSettings((prev) => ({ ...prev, backgroundImage: null }));
     if (backgroundImageInputRef.current) {
-      backgroundImageInputRef.current.value = '';
+      backgroundImageInputRef.current.value = "";
     }
   };
 
@@ -111,25 +131,31 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
     if (!isOpen) return;
 
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === "Escape") {
         handleClose();
       }
     };
 
-    window.addEventListener('keydown', handleEscape);
-    return () => window.removeEventListener('keydown', handleEscape);
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
   }, [isOpen]);
 
   const handleExportProject = async () => {
     if (!window.electronAPI || files.length === 0) {
-      alert('No files to export');
+      alert("No files to export");
       return;
     }
 
     setIsSaving(true);
     try {
       // Convert files to the format needed for exporting
-      const filesData: Array<{ id: string; name: string; type: string; data: string; pageNumber?: number }> = [];
+      const filesData: Array<{
+        id: string;
+        name: string;
+        type: string;
+        data: string;
+        pageNumber?: number;
+      }> = [];
       const fileOrder: string[] = [];
 
       for (const fileItem of files) {
@@ -144,7 +170,7 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
         fileOrder.push(fileItem.id);
       }
 
-      const result = await (window.electronAPI as any).exportProject({
+      const result = await window.electronAPI.exportProject({
         settings: localSettings,
         files: filesData,
         fileOrder,
@@ -156,19 +182,24 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
       }
 
       if (result.success) {
-        alert('Project exported successfully!');
+        alert("Project exported successfully!");
       } else {
-        alert(`Error exporting project: ${result.error || 'Unknown error'}`);
+        alert(`Error exporting project: ${result.error || "Unknown error"}`);
       }
     } catch (error) {
-      console.error('Error exporting project:', error);
-      alert(`Error exporting project: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      console.error("Error exporting project:", error);
+      alert(
+        `Error exporting project: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
     } finally {
       setIsSaving(false);
     }
   };
 
-  const convertFileToBase64 = async (file: File, pageNumber?: number): Promise<string> => {
+  const convertFileToBase64 = async (
+    file: File,
+    pageNumber?: number
+  ): Promise<string> => {
     // For PDFs with page numbers, we'll need to handle this in the renderer
     // For now, just convert the file
     return new Promise((resolve, reject) => {
@@ -181,13 +212,13 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
 
   const handleImportProject = async () => {
     if (!window.electronAPI) {
-      alert('Electron API not available');
+      alert("Electron API not available");
       return;
     }
 
     setIsLoading(true);
     try {
-      const result = await (window.electronAPI as any).importProject();
+      const result = await window.electronAPI.importProject();
 
       if (result.canceled) {
         setIsLoading(false);
@@ -195,16 +226,25 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
       }
 
       if (!result.success || !result.project) {
-        alert(`Error loading project: ${result.error || 'Unknown error'}`);
+        alert(`Error loading project: ${result.error || "Unknown error"}`);
         setIsLoading(false);
         return;
       }
 
       // Group files by base ID (for PDFs with pages)
-      const filesByBaseId = new Map<string, Array<{ id: string; name: string; type: string; data: string; pageNumber?: number }>>();
-      
+      const filesByBaseId = new Map<
+        string,
+        Array<{
+          id: string;
+          name: string;
+          type: string;
+          data: string;
+          pageNumber?: number;
+        }>
+      >();
+
       for (const savedFile of result.project.files) {
-        const baseFileId = savedFile.id.replace(/-page-\d+$/, '');
+        const baseFileId = savedFile.id.replace(/-page-\d+$/, "");
         if (!filesByBaseId.has(baseFileId)) {
           filesByBaseId.set(baseFileId, []);
         }
@@ -213,22 +253,33 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
 
       // Load files from base64 data
       const loadedFiles: FileItem[] = [];
-      
+
       for (const [baseFileId, fileGroup] of filesByBaseId.entries()) {
         try {
           // Get the first file to determine type
           const firstFile = fileGroup[0];
-          const fileType: 'image' | 'video' | 'document' = firstFile.type === 'video' ? 'video' : firstFile.type === 'document' ? 'document' : 'image';
-          
+          const fileType: "image" | "video" | "document" =
+            firstFile.type === "video"
+              ? "video"
+              : firstFile.type === "document"
+                ? "document"
+                : "image";
+
           // For PDFs, we need to reconstruct the full PDF from pages
-          if (fileType === 'document' && firstFile.data.includes('application/pdf')) {
+          if (
+            fileType === "document" &&
+            firstFile.data.includes("application/pdf")
+          ) {
             // Find the full PDF file (not a page image)
-            const fullPdfFile = fileGroup.find(f => !f.pageNumber && f.data.includes('application/pdf'));
-            
+            const fullPdfFile = fileGroup.find(
+              (f) => !f.pageNumber && f.data.includes("application/pdf")
+            );
+
             if (fullPdfFile) {
               // Convert base64 to File
-              const base64Data = fullPdfFile.data.split(',')[1] || fullPdfFile.data;
-              const mimeType = 'application/pdf';
+              const base64Data =
+                fullPdfFile.data.split(",")[1] || fullPdfFile.data;
+              const mimeType = "application/pdf";
               const byteCharacters = atob(base64Data);
               const byteNumbers = new Array(byteCharacters.length);
               for (let i = 0; i < byteCharacters.length; i++) {
@@ -236,14 +287,15 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
               }
               const byteArray = new Uint8Array(byteNumbers);
               const blob = new Blob([byteArray], { type: mimeType });
-              const file = new File([blob], firstFile.name.replace(/\s*\(Page\s+\d+\)\s*$/, ''), { type: mimeType });
+              const file = new File(
+                [blob],
+                firstFile.name.replace(/\s*\(Page\s+\d+\)\s*$/, ""),
+                { type: mimeType }
+              );
 
-              // Get PDF pages
-              const pdfjsLib = await import('pdfjs-dist');
-              pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
-              
               const arrayBuffer = await file.arrayBuffer();
-              const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+              const pdf = await pdfjsLib.getDocument({ data: arrayBuffer })
+                .promise;
               const numPages = pdf.numPages;
 
               const pages: Array<{ pageNumber: number; id: string }> = [];
@@ -256,8 +308,8 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
 
               loadedFiles.push({
                 id: baseFileId,
-                name: firstFile.name.replace(/\s*\(Page\s+\d+\)\s*$/, ''),
-                type: 'document',
+                name: firstFile.name.replace(/\s*\(Page\s+\d+\)\s*$/, ""),
+                type: "document",
                 file,
                 pages,
                 totalPages: numPages,
@@ -265,10 +317,15 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
             } else {
               // If no full PDF found, try to use the first page as the file
               // This shouldn't happen in normal cases, but handle it gracefully
-              console.warn(`No full PDF found for ${baseFileId}, using first page`);
+              console.warn(
+                `No full PDF found for ${baseFileId}, using first page`
+              );
               const firstPage = fileGroup[0];
-              const base64Data = firstPage.data.split(',')[1] || firstPage.data;
-              const mimeType = firstPage.data.split(',')[0].split(':')[1].split(';')[0];
+              const base64Data = firstPage.data.split(",")[1] || firstPage.data;
+              const mimeType = firstPage.data
+                .split(",")[0]
+                .split(":")[1]
+                .split(";")[0];
               const byteCharacters = atob(base64Data);
               const byteNumbers = new Array(byteCharacters.length);
               for (let i = 0; i < byteCharacters.length; i++) {
@@ -276,20 +333,27 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
               }
               const byteArray = new Uint8Array(byteNumbers);
               const blob = new Blob([byteArray], { type: mimeType });
-              const file = new File([blob], firstPage.name.replace(/\s*\(Page\s+\d+\)\s*$/, ''), { type: mimeType });
+              const file = new File(
+                [blob],
+                firstPage.name.replace(/\s*\(Page\s+\d+\)\s*$/, ""),
+                { type: mimeType }
+              );
 
               loadedFiles.push({
                 id: baseFileId,
-                name: firstPage.name.replace(/\s*\(Page\s+\d+\)\s*$/, ''),
-                type: 'document',
+                name: firstPage.name.replace(/\s*\(Page\s+\d+\)\s*$/, ""),
+                type: "document",
                 file,
               });
             }
           } else {
             // Regular file (image, video, or non-PDF document)
             const fileData = fileGroup[0];
-            const base64Data = fileData.data.split(',')[1] || fileData.data;
-            const mimeType = fileData.data.split(',')[0].split(':')[1].split(';')[0];
+            const base64Data = fileData.data.split(",")[1] || fileData.data;
+            const mimeType = fileData.data
+              .split(",")[0]
+              .split(":")[1]
+              .split(";")[0];
             const byteCharacters = atob(base64Data);
             const byteNumbers = new Array(byteCharacters.length);
             for (let i = 0; i < byteCharacters.length; i++) {
@@ -313,21 +377,21 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
 
       // Restore file order
       const orderedFiles: FileItem[] = [];
-      const fileIdMap = new Map(loadedFiles.map(f => [f.id, f]));
-      
+      const fileIdMap = new Map(loadedFiles.map((f) => [f.id, f]));
+
       // First, add files in the saved order
       for (const fileId of result.project.fileOrder) {
         // Handle page IDs
-        const baseId = fileId.replace(/-page-\d+$/, '');
+        const baseId = fileId.replace(/-page-\d+$/, "");
         const file = fileIdMap.get(baseId);
-        if (file && !orderedFiles.find(f => f.id === baseId)) {
+        if (file && !orderedFiles.find((f) => f.id === baseId)) {
           orderedFiles.push(file);
         }
       }
-      
+
       // Add any remaining files that weren't in the order
       for (const file of loadedFiles) {
-        if (!orderedFiles.find(f => f.id === file.id)) {
+        if (!orderedFiles.find((f) => f.id === file.id)) {
           orderedFiles.push(file);
         }
       }
@@ -335,10 +399,12 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
       // Update settings and files
       onSettingsChange(result.project.settings);
       await onLoadProject(orderedFiles, result.project.settings);
-      alert('Project loaded successfully!');
+      alert("Project loaded successfully!");
     } catch (error) {
-      console.error('Error loading project:', error);
-      alert(`Error loading project: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      console.error("Error loading project:", error);
+      alert(
+        `Error loading project: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
     } finally {
       setIsLoading(false);
     }
@@ -360,18 +426,18 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
     <div
       onClick={handleBackdropClick}
       className={cn(
-        'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 transition-opacity duration-200',
-        isAnimating ? 'opacity-100' : 'opacity-0'
+        "fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 transition-opacity duration-200",
+        isAnimating ? "opacity-100" : "opacity-0"
       )}
     >
       <div
         ref={modalRef}
         onClick={(e) => e.stopPropagation()}
         className={cn(
-          'bg-white rounded-lg shadow-xl max-w-xl w-full max-h-[90vh] overflow-y-auto transition-all duration-200',
+          "bg-white rounded-lg shadow-xl max-w-xl w-full max-h-[90vh] overflow-y-auto transition-all duration-200",
           isAnimating
-            ? 'opacity-100 scale-100 translate-y-0'
-            : 'opacity-0 scale-95 translate-y-4'
+            ? "opacity-100 scale-100 translate-y-0"
+            : "opacity-0 scale-95 translate-y-4"
         )}
       >
         <div className="flex items-center justify-between p-4 border-b">
@@ -416,14 +482,18 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
                 })
               }
               className={cn(
-                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-                localSettings.enableTimeBetweenElements ? 'bg-blue-600' : 'bg-gray-300'
+                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                localSettings.enableTimeBetweenElements
+                  ? "bg-blue-600"
+                  : "bg-gray-300"
               )}
             >
               <span
                 className={cn(
-                  'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
-                  localSettings.enableTimeBetweenElements ? 'translate-x-6' : 'translate-x-1'
+                  "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                  localSettings.enableTimeBetweenElements
+                    ? "translate-x-6"
+                    : "translate-x-1"
                 )}
               />
             </button>
@@ -432,21 +502,29 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
           {/* Auto-play videos */}
           <div className="flex items-center justify-between py-1">
             <div className="flex items-center gap-1.5">
-              <label className={cn(
-                'text-sm font-medium',
-                localSettings.enableTimeBetweenElements ? 'text-gray-700' : 'text-gray-400'
-              )}>
+              <label
+                className={cn(
+                  "text-sm font-medium",
+                  localSettings.enableTimeBetweenElements
+                    ? "text-gray-700"
+                    : "text-gray-400"
+                )}
+              >
                 Auto-play videos
               </label>
               <div className="group relative">
-                <Info className={cn(
-                  'w-4 h-4 cursor-help',
-                  localSettings.enableTimeBetweenElements ? 'text-gray-400' : 'text-gray-300'
-                )} />
+                <Info
+                  className={cn(
+                    "w-4 h-4 cursor-help",
+                    localSettings.enableTimeBetweenElements
+                      ? "text-gray-400"
+                      : "text-gray-300"
+                  )}
+                />
                 <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover:block z-10">
                   <div className="bg-gray-900 text-white text-xs rounded py-1.5 px-2.5 whitespace-nowrap shadow-lg">
                     {localSettings.enableTimeBetweenElements
-                      ? 'Automatically play videos when displayed'
+                      ? "Automatically play videos when displayed"
                       : 'Requires "Auto-advance elements" to be enabled'}
                     <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
                   </div>
@@ -455,19 +533,30 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
             </div>
             <button
               onClick={() =>
-                setLocalSettings((prev) => ({ ...prev, autoPlayVideos: !prev.autoPlayVideos }))
+                setLocalSettings((prev) => ({
+                  ...prev,
+                  autoPlayVideos: !prev.autoPlayVideos,
+                }))
               }
               disabled={!localSettings.enableTimeBetweenElements}
               className={cn(
-                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-                localSettings.autoPlayVideos && localSettings.enableTimeBetweenElements ? 'bg-blue-600' : 'bg-gray-300',
-                !localSettings.enableTimeBetweenElements ? 'opacity-50 cursor-not-allowed' : ''
+                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                localSettings.autoPlayVideos &&
+                  localSettings.enableTimeBetweenElements
+                  ? "bg-blue-600"
+                  : "bg-gray-300",
+                !localSettings.enableTimeBetweenElements
+                  ? "opacity-50 cursor-not-allowed"
+                  : ""
               )}
             >
               <span
                 className={cn(
-                  'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
-                  localSettings.autoPlayVideos && localSettings.enableTimeBetweenElements ? 'translate-x-6' : 'translate-x-1'
+                  "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                  localSettings.autoPlayVideos &&
+                    localSettings.enableTimeBetweenElements
+                    ? "translate-x-6"
+                    : "translate-x-1"
                 )}
               />
             </button>
@@ -498,12 +587,15 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
               onChange={(e) =>
                 setLocalSettings((prev) => ({
                   ...prev,
-                  timeBetweenElements: Math.round(parseFloat(e.target.value) * 1000) || 3000,
+                  timeBetweenElements:
+                    Math.round(parseFloat(e.target.value) * 1000) || 3000,
                 }))
               }
               disabled={!localSettings.enableTimeBetweenElements}
               className={`w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                !localSettings.enableTimeBetweenElements ? 'bg-gray-100 cursor-not-allowed opacity-60' : ''
+                !localSettings.enableTimeBetweenElements
+                  ? "bg-gray-100 cursor-not-allowed opacity-60"
+                  : ""
               }`}
             />
           </div>
@@ -525,11 +617,17 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
               </div>
             </div>
             <select
-              value={localSettings.transitionType || 'fade'}
+              value={localSettings.transitionType || "fade"}
               onChange={(e) =>
                 setLocalSettings((prev) => ({
                   ...prev,
-                  transitionType: e.target.value as 'none' | 'fade' | 'slide' | 'zoom' | 'blur' | 'rotate',
+                  transitionType: e.target.value as
+                    | "none"
+                    | "fade"
+                    | "slide"
+                    | "zoom"
+                    | "blur"
+                    | "rotate",
                 }))
               }
               className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -572,14 +670,14 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
                 })
               }
               className={cn(
-                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-                localSettings.loop ? 'bg-blue-600' : 'bg-gray-300'
+                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                localSettings.loop ? "bg-blue-600" : "bg-gray-300"
               )}
             >
               <span
                 className={cn(
-                  'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
-                  localSettings.loop ? 'translate-x-6' : 'translate-x-1'
+                  "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                  localSettings.loop ? "translate-x-6" : "translate-x-1"
                 )}
               />
             </button>
@@ -588,21 +686,25 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
           {/* Random */}
           <div className="flex items-center justify-between py-1">
             <div className="flex items-center gap-1.5">
-              <label className={cn(
-                'text-sm font-medium',
-                localSettings.loop ? 'text-gray-700' : 'text-gray-400'
-              )}>
+              <label
+                className={cn(
+                  "text-sm font-medium",
+                  localSettings.loop ? "text-gray-700" : "text-gray-400"
+                )}
+              >
                 Random order
               </label>
               <div className="group relative">
-                <Info className={cn(
-                  'w-4 h-4 cursor-help',
-                  localSettings.loop ? 'text-gray-400' : 'text-gray-300'
-                )} />
+                <Info
+                  className={cn(
+                    "w-4 h-4 cursor-help",
+                    localSettings.loop ? "text-gray-400" : "text-gray-300"
+                  )}
+                />
                 <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover:block z-10">
                   <div className="bg-gray-900 text-white text-xs rounded py-1.5 px-2.5 whitespace-nowrap shadow-lg">
-                    {localSettings.loop 
-                      ? 'Shuffle files in random order'
+                    {localSettings.loop
+                      ? "Shuffle files in random order"
                       : 'Requires "Loop elements" to be enabled'}
                     <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
                   </div>
@@ -615,15 +717,19 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
               }
               disabled={!localSettings.loop}
               className={cn(
-                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-                localSettings.random && localSettings.loop ? 'bg-blue-600' : 'bg-gray-300',
-                !localSettings.loop ? 'opacity-50 cursor-not-allowed' : ''
+                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                localSettings.random && localSettings.loop
+                  ? "bg-blue-600"
+                  : "bg-gray-300",
+                !localSettings.loop ? "opacity-50 cursor-not-allowed" : ""
               )}
             >
               <span
                 className={cn(
-                  'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
-                  localSettings.random && localSettings.loop ? 'translate-x-6' : 'translate-x-1'
+                  "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                  localSettings.random && localSettings.loop
+                    ? "translate-x-6"
+                    : "translate-x-1"
                 )}
               />
             </button>
@@ -653,14 +759,18 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
                 }))
               }
               className={cn(
-                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-                localSettings.showBackgroundWithFiles ? 'bg-blue-600' : 'bg-gray-300'
+                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                localSettings.showBackgroundWithFiles
+                  ? "bg-blue-600"
+                  : "bg-gray-300"
               )}
             >
               <span
                 className={cn(
-                  'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
-                  localSettings.showBackgroundWithFiles ? 'translate-x-6' : 'translate-x-1'
+                  "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                  localSettings.showBackgroundWithFiles
+                    ? "translate-x-6"
+                    : "translate-x-1"
                 )}
               />
             </button>
@@ -771,7 +881,9 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
                 <Info className="w-4 h-4 text-gray-400 cursor-help" />
                 <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover:block z-10">
                   <div className="bg-gray-900 text-white text-xs rounded py-1.5 px-2.5 max-w-xs shadow-lg">
-                    Automatically enter fullscreen mode when opening the projector. The fullscreen will open on the screen where the program is running.
+                    Automatically enter fullscreen mode when opening the
+                    projector. The fullscreen will open on the screen where the
+                    program is running.
                     <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
                   </div>
                 </div>
@@ -785,14 +897,16 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
                 }))
               }
               className={cn(
-                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-                localSettings.openFullscreen ? 'bg-blue-600' : 'bg-gray-300'
+                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                localSettings.openFullscreen ? "bg-blue-600" : "bg-gray-300"
               )}
             >
               <span
                 className={cn(
-                  'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
-                  localSettings.openFullscreen ? 'translate-x-6' : 'translate-x-1'
+                  "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                  localSettings.openFullscreen
+                    ? "translate-x-6"
+                    : "translate-x-1"
                 )}
               />
             </button>
@@ -811,7 +925,9 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
                 <Info className="w-4 h-4 text-gray-400 cursor-help" />
                 <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover:block z-10">
                   <div className="bg-gray-900 text-white text-xs rounded py-1.5 px-2.5 max-w-xs shadow-lg">
-                    Export your current settings, file order, and copies of all files as a compressed zip file, or import a previously exported project
+                    Export your current settings, file order, and copies of all
+                    files as a compressed zip file, or import a previously
+                    exported project
                     <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
                   </div>
                 </div>
@@ -822,23 +938,24 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
                 onClick={handleExportProject}
                 disabled={isSaving || files.length === 0}
                 className={cn(
-                  'flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-md text-sm font-medium transition-colors',
-                  (isSaving || files.length === 0) && 'opacity-50 cursor-not-allowed'
+                  "flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-md text-sm font-medium transition-colors",
+                  (isSaving || files.length === 0) &&
+                    "opacity-50 cursor-not-allowed"
                 )}
               >
                 <Download className="w-4 h-4" />
-                {isSaving ? 'Exporting...' : 'Export Project'}
+                {isSaving ? "Exporting..." : "Export Project"}
               </button>
               <button
                 onClick={handleImportProject}
                 disabled={isLoading}
                 className={cn(
-                  'flex items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-md text-sm font-medium transition-colors',
-                  isLoading && 'opacity-50 cursor-not-allowed'
+                  "flex items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-md text-sm font-medium transition-colors",
+                  isLoading && "opacity-50 cursor-not-allowed"
                 )}
               >
                 <Upload className="w-4 h-4" />
-                {isLoading ? 'Importing...' : 'Import Project'}
+                {isLoading ? "Importing..." : "Import Project"}
               </button>
             </div>
           </div>
@@ -870,14 +987,16 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
                 }))
               }
               className={cn(
-                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-                localSettings.bootOnStartup ? 'bg-blue-600' : 'bg-gray-300'
+                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                localSettings.bootOnStartup ? "bg-blue-600" : "bg-gray-300"
               )}
             >
               <span
                 className={cn(
-                  'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
-                  localSettings.bootOnStartup ? 'translate-x-6' : 'translate-x-1'
+                  "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                  localSettings.bootOnStartup
+                    ? "translate-x-6"
+                    : "translate-x-1"
                 )}
               />
             </button>
@@ -893,7 +1012,8 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
                 <Info className="w-4 h-4 text-gray-400 cursor-help" />
                 <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover:block z-10">
                   <div className="bg-gray-900 text-white text-xs rounded py-1.5 px-2.5 max-w-xs shadow-lg">
-                    Open the projector window automatically when the program is launched
+                    Open the projector window automatically when the program is
+                    launched
                     <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
                   </div>
                 </div>
@@ -907,14 +1027,18 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
                 }))
               }
               className={cn(
-                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-                localSettings.bootInProjectorMode ? 'bg-blue-600' : 'bg-gray-300'
+                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                localSettings.bootInProjectorMode
+                  ? "bg-blue-600"
+                  : "bg-gray-300"
               )}
             >
               <span
                 className={cn(
-                  'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
-                  localSettings.bootInProjectorMode ? 'translate-x-6' : 'translate-x-1'
+                  "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                  localSettings.bootInProjectorMode
+                    ? "translate-x-6"
+                    : "translate-x-1"
                 )}
               />
             </button>
@@ -930,18 +1054,19 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
                 <Info className="w-4 h-4 text-gray-400 cursor-help" />
                 <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover:block z-10">
                   <div className="bg-gray-900 text-white text-xs rounded py-1.5 px-2.5 max-w-xs shadow-lg">
-                    Choose whether the main window opens minimized to tray or normally when the program is launched
+                    Choose whether the main window opens minimized to tray or
+                    normally when the program is launched
                     <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
                   </div>
                 </div>
               </div>
             </div>
             <select
-              value={localSettings.bootWindowState || 'normal'}
+              value={localSettings.bootWindowState || "normal"}
               onChange={(e) =>
                 setLocalSettings((prev) => ({
                   ...prev,
-                  bootWindowState: e.target.value as 'minimized' | 'normal',
+                  bootWindowState: e.target.value as "minimized" | "normal",
                 }))
               }
               className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -964,7 +1089,8 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
                 <Info className="w-4 h-4 text-gray-400 cursor-help" />
                 <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover:block z-10">
                   <div className="bg-gray-900 text-white text-xs rounded py-1.5 px-2.5 max-w-xs shadow-lg">
-                    Show a prompt when closing the window asking whether to minimize to tray or close completely
+                    Show a prompt when closing the window asking whether to
+                    minimize to tray or close completely
                     <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
                   </div>
                 </div>
@@ -978,14 +1104,16 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
                 }))
               }
               className={cn(
-                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-                localSettings.showExitPrompt ? 'bg-blue-600' : 'bg-gray-300'
+                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                localSettings.showExitPrompt ? "bg-blue-600" : "bg-gray-300"
               )}
             >
               <span
                 className={cn(
-                  'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
-                  localSettings.showExitPrompt ? 'translate-x-6' : 'translate-x-1'
+                  "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                  localSettings.showExitPrompt
+                    ? "translate-x-6"
+                    : "translate-x-1"
                 )}
               />
             </button>
@@ -1001,7 +1129,8 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
                 <Info className="w-4 h-4 text-gray-400 cursor-help" />
                 <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover:block z-10">
                   <div className="bg-gray-900 text-white text-xs rounded py-1.5 px-2.5 max-w-xs shadow-lg">
-                    What to do when closing the window (only used when "Show exit prompt" is disabled)
+                    What to do when closing the window (only used when "Show
+                    exit prompt" is disabled)
                     <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
                   </div>
                 </div>
@@ -1012,13 +1141,15 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
               onChange={(e) =>
                 setLocalSettings((prev) => ({
                   ...prev,
-                  exitBehavior: e.target.value as 'minimize' | 'close',
+                  exitBehavior: e.target.value as "minimize" | "close",
                 }))
               }
               disabled={localSettings.showExitPrompt}
               className={cn(
-                'w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500',
-                localSettings.showExitPrompt ? 'bg-gray-100 cursor-not-allowed opacity-60' : ''
+                "w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500",
+                localSettings.showExitPrompt
+                  ? "bg-gray-100 cursor-not-allowed opacity-60"
+                  : ""
               )}
             >
               <option value="minimize">Minimize to Tray</option>
@@ -1053,14 +1184,18 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
                 }))
               }
               className={cn(
-                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-                (localSettings.showWelcomeDialog ?? true) ? 'bg-blue-600' : 'bg-gray-300'
+                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                (localSettings.showWelcomeDialog ?? true)
+                  ? "bg-blue-600"
+                  : "bg-gray-300"
               )}
             >
               <span
                 className={cn(
-                  'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
-                  (localSettings.showWelcomeDialog ?? true) ? 'translate-x-6' : 'translate-x-1'
+                  "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                  (localSettings.showWelcomeDialog ?? true)
+                    ? "translate-x-6"
+                    : "translate-x-1"
                 )}
               />
             </button>
@@ -1070,4 +1205,3 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
     </div>
   );
 };
-

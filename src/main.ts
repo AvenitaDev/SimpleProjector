@@ -1,4 +1,4 @@
-// @ts-ignore - Vite constants injected by Electron Forge at build time
+// @ts-ignore
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 // @ts-ignore
 declare const MAIN_WINDOW_VITE_NAME: string;
@@ -13,12 +13,9 @@ import archiver from 'archiver';
 import AdmZip from 'adm-zip';
 import started from 'electron-squirrel-startup';
 
-// Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
   app.quit();
 }
-
-if (started) app.quit();
 
 app.setAppUserModelId("com.squirrel.SimpleProjector.SimpleProjector");
 
@@ -54,42 +51,31 @@ let appSettings: { bootOnStartup: boolean; bootInProjectorMode: boolean } = {
   bootInProjectorMode: false,
 };
 let shouldMinimizeOnClose = false;
-let isFirstWindowShow = true; // Track if this is the first time showing the window
+let isFirstWindowShow = true;
 let exitBehaviorSettings: { showExitPrompt: boolean; exitBehavior: 'minimize' | 'close' } = {
   showExitPrompt: true,
   exitBehavior: 'minimize',
 };
+let pendingBootInProjectorMode = false; // Flag to track if we're waiting to boot in projector mode
 
-// ==================== Utility Functions ====================
-
-// Resource path helper
 const resourcePath = !process.env.NODE_ENV || process.env.NODE_ENV === "production"
-  ? process.resourcesPath // Live Mode
-  : __dirname; // Dev Mode
+  ? process.resourcesPath
+  : __dirname;
 
-// Path helpers
 const getSettingsPath = () => path.join(app.getPath('userData'), 'settings.json');
 const getFilesStoragePath = () => path.join(app.getPath('userData'), 'files-storage');
 
-// Debug mode check - disable autostart in debug/development mode
 const isDebugMode = (): boolean => {
   return !app.isPackaged || process.env.DEBUG === 'true';
 };
 
-// Linux autostart .desktop file management
 const getLinuxAutostartPath = (): string => {
   const homeDir = app.getPath('home');
   return path.join(homeDir, '.config', 'autostart', 'simpleprojector.desktop');
 };
 
 const getExecutablePath = (): string => {
-  if (app.isPackaged) {
-    // In production, use process.execPath which points to the executable
-    return process.execPath;
-  } else {
-    // In development, use electron executable with the app path
-    return process.execPath;
-  }
+  return process.execPath;
 };
 
 const createLinuxAutostartDesktop = async (bootInProjectorMode: boolean): Promise<void> => {
@@ -98,11 +84,9 @@ const createLinuxAutostartDesktop = async (bootInProjectorMode: boolean): Promis
     await fs.mkdir(autostartDir, { recursive: true });
 
     const execPath = getExecutablePath();
-    // Escape the executable path if it contains spaces
     const escapedExecPath = execPath.includes(' ') ? `"${execPath}"` : execPath;
     const execArgs = bootInProjectorMode ? ' --projector-mode' : '';
 
-    // Find icon path
     const iconPaths = [
       path.join(resourcePath, 'assets/icon.png'),
       path.join(app.getAppPath(), 'src/assets/icon.png'),
@@ -971,6 +955,16 @@ const registerIpcHandlers = () => {
     notifyMainWindow('tray-open-projector-request');
   });
 
+  // Handler for when renderer notifies that files are fully loaded
+  ipcMain.handle('notify-files-loaded', async () => {
+    if (pendingBootInProjectorMode) {
+      pendingBootInProjectorMode = false;
+      // Now that files are loaded, notify the renderer to open projector
+      notifyMainWindow('boot-in-projector-mode');
+    }
+    return { success: true };
+  });
+
   ipcMain.handle('load-settings', async () => loadSettings());
 
   ipcMain.handle('save-settings', async (_event, settings: any) => {
@@ -1498,12 +1492,10 @@ app.whenReady().then(async () => {
         if (settings) {
           await loadExitBehaviorSettings();
 
-          // Load and apply startup settings (only if not in debug mode)
           if (!isDebugMode() && (settings.bootOnStartup !== undefined || settings.bootInProjectorMode !== undefined)) {
             appSettings.bootOnStartup = settings.bootOnStartup ?? false;
             appSettings.bootInProjectorMode = settings.bootInProjectorMode ?? false;
 
-            // Apply startup settings (Linux uses .desktop file, Windows/macOS use setLoginItemSettings)
             if (process.platform === 'linux') {
               try {
                 await updateLinuxAutostart(appSettings.bootOnStartup, appSettings.bootInProjectorMode);
@@ -1538,19 +1530,12 @@ app.whenReady().then(async () => {
           }
 
           notifyMainWindow('load-persistent-settings', settings);
-        } else {
-          // Even if no settings file exists, check command line flag
-          if (shouldBootInProjectorMode) {
-            // Will trigger after files are loaded
-          }
         }
 
-        // Load files
         const storagePath = getFilesStoragePath();
         const filesDir = path.join(storagePath, 'files');
         const metadataPath = path.join(storagePath, 'metadata.json');
 
-        // Check if we should boot in projector mode (either from command line or settings)
         const shouldBootInProjector = shouldBootInProjectorMode || (settings && settings.bootInProjectorMode === true);
 
         if (existsSync(metadataPath) && existsSync(filesDir)) {
@@ -1590,29 +1575,29 @@ app.whenReady().then(async () => {
               fileOrder: metadata.fileOrder || [],
             });
 
-            // Trigger boot-in-projector-mode after files are loaded and processed
-            // Give enough time for the renderer to process the files
             if (shouldBootInProjector) {
-              setTimeout(() => notifyMainWindow('boot-in-projector-mode'), 1000);
+              // Set flag - the renderer will notify us when files are fully loaded
+              // Then we'll send the boot-in-projector-mode event
+              pendingBootInProjectorMode = true;
             }
           } catch (error) {
             console.error('Error loading persistent files:', error);
-            // Even if there's an error loading files, trigger boot-in-projector-mode if needed
             if (shouldBootInProjector) {
-              setTimeout(() => notifyMainWindow('boot-in-projector-mode'), 1000);
+              // Set flag - the renderer will notify when ready
+              pendingBootInProjectorMode = true;
             }
           }
         } else {
-          // No files to load, but still trigger boot-in-projector-mode if needed
           if (shouldBootInProjector) {
-            setTimeout(() => notifyMainWindow('boot-in-projector-mode'), 1000);
+            // Set flag - the renderer will notify when ready (even with no files)
+            pendingBootInProjectorMode = true;
           }
         }
       } catch (error) {
         console.error('Error loading persistent data:', error);
-        // Even if there's an error loading settings, check command line flag
         if (shouldBootInProjectorMode) {
-          setTimeout(() => notifyMainWindow('boot-in-projector-mode'), 500);
+          // Set flag - the renderer will notify when ready
+          pendingBootInProjectorMode = true;
         }
       }
     });
