@@ -35,6 +35,10 @@ declare global {
       notifyProjectorIndexChange: (index: number) => Promise<{ success: boolean }>;
       sendVideoProgress: (progress: { currentTime: number; duration: number }) => Promise<{ success: boolean }>;
       sendTimerProgress: (progress: { elapsed: number; total: number }) => Promise<{ success: boolean }>;
+      updateProjectorSettings: (settings: ProjectorSettings) => Promise<{ success: boolean }>;
+      saveSettings: (settings: ProjectorSettings) => Promise<{ success: boolean; error?: string }>;
+      loadSettings: () => Promise<ProjectorSettings | null>;
+      navigateProjector: (direction: 'next' | 'previous') => Promise<{ success: boolean; index?: number }>;
     };
   }
 }
@@ -49,6 +53,7 @@ export const ProjectorView = () => {
   const [showWelcome, setShowWelcome] = useState(false);
   const [dontShowAgain, setDontShowAgain] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
+  const [isIdle, setIsIdle] = useState(false);
   const [volume, setVolume] = useState<number>(1.0);
   const [previousIndex, setPreviousIndex] = useState<number>(-1);
   const [isTransitioning, setIsTransitioning] = useState(false);
@@ -58,6 +63,7 @@ export const ProjectorView = () => {
   const timerStartTimeRef = useRef<number | null>(null);
   const videoProgressIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const timerProgressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const idleTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const volumeRef = useRef<number>(1.0);
   const isPlayingRef = useRef<boolean>(false);
   const isSeekingRef = useRef<boolean>(false);
@@ -82,6 +88,58 @@ export const ProjectorView = () => {
   useEffect(() => {
     currentIndexRef.current = currentIndex;
   }, [currentIndex]);
+
+  // Handle mouse idle detection for auto-hiding UI
+  useEffect(() => {
+    const handleMouseMove = () => {
+      // Reset idle state when mouse moves
+      setIsIdle(false);
+      
+      // Clear existing timeout
+      if (idleTimeoutRef.current) {
+        clearTimeout(idleTimeoutRef.current);
+      }
+      
+      // Set new timeout (3 seconds of inactivity)
+      idleTimeoutRef.current = setTimeout(() => {
+        setIsIdle(true);
+      }, 3000);
+    };
+
+    // Only track mouse movement when hovering over the window
+    if (isHovered) {
+      // Reset idle state when mouse enters
+      setIsIdle(false);
+      
+      // Clear any existing timeout
+      if (idleTimeoutRef.current) {
+        clearTimeout(idleTimeoutRef.current);
+      }
+      
+      // Set initial timeout (3 seconds of inactivity)
+      idleTimeoutRef.current = setTimeout(() => {
+        setIsIdle(true);
+      }, 3000);
+      
+      // Add mouse move listener
+      window.addEventListener('mousemove', handleMouseMove);
+      
+      return () => {
+        window.removeEventListener('mousemove', handleMouseMove);
+        if (idleTimeoutRef.current) {
+          clearTimeout(idleTimeoutRef.current);
+          idleTimeoutRef.current = null;
+        }
+      };
+    } else {
+      // When mouse leaves, reset idle state and clear timeout
+      setIsIdle(false);
+      if (idleTimeoutRef.current) {
+        clearTimeout(idleTimeoutRef.current);
+        idleTimeoutRef.current = null;
+      }
+    }
+  }, [isHovered]);
 
   // Track previous index for transitions
   useEffect(() => {
@@ -374,13 +432,23 @@ export const ProjectorView = () => {
     // If "don't show again" is checked, disable the welcome dialog setting
     if (dontShowAgain && window.electronAPI) {
       try {
+        // Load current settings first to ensure we have all settings
+        const currentSettings = await window.electronAPI.loadSettings();
         const updatedSettings = {
+          ...defaultSettings,
+          ...currentSettings,
           ...settings,
           showWelcomeDialog: false,
         };
+        // Update projector settings first (for immediate effect)
         await window.electronAPI.updateProjectorSettings(updatedSettings);
-        await window.electronAPI.saveSettings(updatedSettings);
-        setSettings(updatedSettings);
+        // Then save settings to ensure persistence
+        const saveResult = await window.electronAPI.saveSettings(updatedSettings);
+        if (saveResult.success) {
+          setSettings(updatedSettings);
+        } else {
+          console.error('Error saving welcome dialog preference:', saveResult.error);
+        }
       } catch (error) {
         console.error('Error saving welcome dialog preference:', error);
       }
@@ -395,6 +463,47 @@ export const ProjectorView = () => {
         console.error('Error closing projector:', error);
       }
     }
+  };
+
+  const handleClick = (event: React.MouseEvent) => {
+    // Don't navigate if clicking on buttons or welcome dialog
+    if (showWelcome) return;
+    
+    // Check if click is on a button, control element, or draggable region
+    const target = event.target as HTMLElement;
+    if (
+      target.closest('button') || 
+      target.closest('[style*="no-drag"]') ||
+      target.closest('[style*="drag"]') ||
+      (target.getAttribute('style')?.includes('drag'))
+    ) {
+      return;
+    }
+
+    // Don't navigate if clicking in the top draggable region (first 32px)
+    if (!isFullscreen && event.clientY <= 32) {
+      return;
+    }
+
+    if (window.electronAPI) {
+      if (event.button === 0) {
+        // Left click - navigate forward
+        window.electronAPI.navigateProjector('next').catch((error) => {
+          console.error('Error navigating forward:', error);
+        });
+      } else if (event.button === 2) {
+        // Right click - navigate backward
+        event.preventDefault(); // Prevent context menu
+        window.electronAPI.navigateProjector('previous').catch((error) => {
+          console.error('Error navigating backward:', error);
+        });
+      }
+    }
+  };
+
+  const handleContextMenu = (event: React.MouseEvent) => {
+    // Prevent context menu on right click
+    event.preventDefault();
   };
 
   // Track if currentIndex was changed by auto-play (not by navigation event)
@@ -750,10 +859,12 @@ export const ProjectorView = () => {
   if (files.length === 0 || currentIndex === -1) {
     return (
       <div
-        className="w-screen h-screen relative"
+        className={`w-screen h-screen relative ${isIdle ? 'cursor-none' : ''}`}
         style={getBackgroundStyle()}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
+        onMouseDown={handleClick}
+        onContextMenu={handleContextMenu}
       >
         {/* Draggable region - only when not fullscreen */}
         {!isFullscreen && (
@@ -824,7 +935,7 @@ export const ProjectorView = () => {
         {/* Hover controls */}
         <div 
           className={`absolute top-4 right-4 flex gap-2 z-50 transition-all duration-200 ${
-            isHovered && !showWelcome 
+            isHovered && !showWelcome && !isIdle
               ? 'opacity-100 translate-y-0 delay-100' 
               : 'opacity-0 translate-y-[-10px] pointer-events-none delay-0'
           }`}
@@ -941,10 +1052,12 @@ export const ProjectorView = () => {
 
   return (
     <div
-      className="w-screen h-screen flex items-center justify-center overflow-hidden relative"
+      className={`w-screen h-screen flex items-center justify-center overflow-hidden relative ${isIdle ? 'cursor-none' : ''}`}
       style={settings.showBackgroundWithFiles ? getBackgroundStyle() : { backgroundColor: '#000000' }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
+      onMouseDown={handleClick}
+      onContextMenu={handleContextMenu}
     >
       {/* Draggable region - only when not fullscreen */}
       {!isFullscreen && (
@@ -1036,7 +1149,7 @@ export const ProjectorView = () => {
       {/* Hover controls */}
       <div 
         className={`absolute top-4 right-4 flex gap-2 z-50 transition-all duration-200 ${
-          isHovered && !showWelcome 
+          isHovered && !showWelcome && !isIdle
             ? 'opacity-100 translate-y-0 delay-100' 
             : 'opacity-0 translate-y-[-10px] pointer-events-none delay-0'
         }`}

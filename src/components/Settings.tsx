@@ -36,12 +36,14 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
     // Ensure auto-play videos is disabled if auto-advance is disabled
     // Ensure showWelcomeDialog has a default value if undefined
     // Ensure transitionType has a default value if undefined
+    // Ensure bootWindowState has a default value if undefined
     const syncedSettings = {
       ...settings,
       random: settings.loop ? settings.random : false,
       autoPlayVideos: settings.enableTimeBetweenElements ? settings.autoPlayVideos : false,
       showWelcomeDialog: settings.showWelcomeDialog ?? true,
       transitionType: settings.transitionType ?? 'fade',
+      bootWindowState: settings.bootWindowState ?? 'normal',
     };
     setLocalSettings(syncedSettings);
   }, [settings]);
@@ -865,8 +867,6 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
                 setLocalSettings((prev) => ({
                   ...prev,
                   bootOnStartup: !prev.bootOnStartup,
-                  // Disable bootInProjectorMode if bootOnStartup is disabled
-                  bootInProjectorMode: !prev.bootOnStartup ? false : prev.bootInProjectorMode,
                 }))
               }
               className={cn(
@@ -892,8 +892,8 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
               <div className="group relative">
                 <Info className="w-4 h-4 text-gray-400 cursor-help" />
                 <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover:block z-10">
-                  <div className="bg-gray-900 text-white text-xs rounded py-1.5 px-2.5 whitespace-nowrap shadow-lg">
-                    Open the projector window automatically on startup (requires "Boot on startup")
+                  <div className="bg-gray-900 text-white text-xs rounded py-1.5 px-2.5 max-w-xs shadow-lg">
+                    Open the projector window automatically when the program is launched
                     <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
                   </div>
                 </div>
@@ -906,20 +906,49 @@ export const Settings = ({ settings, onSettingsChange, files, onLoadProject }: S
                   bootInProjectorMode: !prev.bootInProjectorMode,
                 }))
               }
-              disabled={!localSettings.bootOnStartup}
               className={cn(
                 'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-                localSettings.bootInProjectorMode && localSettings.bootOnStartup ? 'bg-blue-600' : 'bg-gray-300',
-                !localSettings.bootOnStartup ? 'opacity-50 cursor-not-allowed' : ''
+                localSettings.bootInProjectorMode ? 'bg-blue-600' : 'bg-gray-300'
               )}
             >
               <span
                 className={cn(
                   'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
-                  localSettings.bootInProjectorMode && localSettings.bootOnStartup ? 'translate-x-6' : 'translate-x-1'
+                  localSettings.bootInProjectorMode ? 'translate-x-6' : 'translate-x-1'
                 )}
               />
             </button>
+          </div>
+
+          {/* Boot window state */}
+          <div>
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <label className="text-sm font-medium text-gray-700">
+                Window state on launch
+              </label>
+              <div className="group relative">
+                <Info className="w-4 h-4 text-gray-400 cursor-help" />
+                <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover:block z-10">
+                  <div className="bg-gray-900 text-white text-xs rounded py-1.5 px-2.5 max-w-xs shadow-lg">
+                    Choose whether the main window opens minimized to tray or normally when the program is launched
+                    <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <select
+              value={localSettings.bootWindowState || 'normal'}
+              onChange={(e) =>
+                setLocalSettings((prev) => ({
+                  ...prev,
+                  bootWindowState: e.target.value as 'minimized' | 'normal',
+                }))
+              }
+              className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="normal">Open normally</option>
+              <option value="minimized">Minimize to tray</option>
+            </select>
           </div>
 
           {/* Divider */}

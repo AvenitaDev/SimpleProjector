@@ -1000,10 +1000,22 @@ export const App = () => {
     if (!window.electronAPI) return;
 
     const handleBootInProjectorMode = async () => {
-      // If we have files, open projector
-      if (files.length > 0) {
-        await handleOpenProjector();
-      }
+      // Wait for files to be loaded if they're not available yet
+      let attempts = 0;
+      const maxAttempts = 20; // Wait up to 10 seconds (20 * 500ms)
+      
+      const tryOpenProjector = async () => {
+        // Check current files state - use a function to get latest value
+        const currentFiles = files;
+        if (currentFiles.length > 0) {
+          await handleOpenProjector();
+        } else if (attempts < maxAttempts) {
+          attempts++;
+          setTimeout(tryOpenProjector, 500);
+        }
+      };
+      
+      tryOpenProjector();
     };
 
     const handleTrayOpenProjector = async () => {

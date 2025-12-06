@@ -10,6 +10,7 @@ export interface ProjectorSettings {
   openFullscreen: boolean; // open projector in fullscreen mode
   bootOnStartup: boolean; // start app on system startup
   bootInProjectorMode: boolean; // open in projector mode on startup (requires bootOnStartup)
+  bootWindowState: 'minimized' | 'normal'; // window state when app is launched
   showExitPrompt: boolean; // show prompt when closing the window
   exitBehavior: 'minimize' | 'close'; // what to do when closing: minimize to tray or close completely
   showWelcomeDialog: boolean; // show welcome dialog when opening projector mode
@@ -30,6 +31,7 @@ export const defaultSettings: ProjectorSettings = {
   openFullscreen: false,
   bootOnStartup: false,
   bootInProjectorMode: false,
+  bootWindowState: 'normal',
   showExitPrompt: true,
   exitBehavior: 'minimize',
   showWelcomeDialog: true,

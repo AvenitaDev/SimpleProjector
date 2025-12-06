@@ -14,18 +14,21 @@ const config: ForgeConfig = {
     // .ico for Windows, .icns for macOS, .png for Linux
     icon: './src/assets/icon',
     name: 'SimpleProjector',
-    // Copy assets folder to the packaged app
+    executableName: 'SimpleProjector',
+    // Copy assets folder to the packaged app resources
     extraResource: ['./src/assets'],
   },
   rebuildConfig: {},
   makers: [
     new MakerSquirrel({
-      iconUrl: 'https://raw.githubusercontent.com/your-repo/icon.ico',
+      name: "SimpleProjector",
+      iconUrl: 'http://src/assets/icon.ico',
       setupIcon: './src/assets/icon.ico',
     }),
     new MakerZIP({}, ['darwin']),
     new MakerRpm({
       options: {
+        name: 'SimpleProjector',
         icon: './src/assets/icon.png',
       },
     }),
@@ -59,7 +62,7 @@ const config: ForgeConfig = {
         },
         {
           name: 'projector_window',
-          config: 'vite.renderer.config.ts',
+          config: 'vite.projector.config.ts',
         },
       ],
     }),

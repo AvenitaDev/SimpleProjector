@@ -1,7 +1,14 @@
+// @ts-ignore - Vite constants injected by Electron Forge at build time
+declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
+// @ts-ignore
+declare const MAIN_WINDOW_VITE_NAME: string;
+// @ts-ignore
+declare const PROJECTOR_WINDOW_VITE_NAME: string | undefined;
+
 import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, dialog } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import { existsSync, createWriteStream } from 'node:fs';
+import { existsSync, createWriteStream, readdirSync, statSync } from 'node:fs';
 import archiver from 'archiver';
 import AdmZip from 'adm-zip';
 import started from 'electron-squirrel-startup';
@@ -11,6 +18,10 @@ if (started) {
   app.quit();
 }
 
+if (started) app.quit();
+
+app.setAppUserModelId("com.squirrel.SimpleProjector.SimpleProjector");
+
 // Request single instance lock
 const gotTheLock = app.requestSingleInstanceLock();
 
@@ -18,17 +29,14 @@ if (!gotTheLock) {
   // Another instance is already running, quit this one
   app.quit();
 } else {
-  // This is the first instance, handle second instance attempts
   app.on('second-instance', () => {
-    // Someone tried to run a second instance, restore our window instead
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      if (mainWindow.isMinimized()) {
-        mainWindow.restore();
+    if (isMainWindowValid()) {
+      if (mainWindow!.isMinimized()) {
+        mainWindow!.restore();
       }
-      mainWindow.show();
-      mainWindow.focus();
+      mainWindow!.show();
+      mainWindow!.focus();
     }
-    // Note: If window doesn't exist yet, it will be created in app.whenReady()
   });
 }
 
@@ -46,83 +54,262 @@ let appSettings: { bootOnStartup: boolean; bootInProjectorMode: boolean } = {
   bootInProjectorMode: false,
 };
 let shouldMinimizeOnClose = false;
+let isFirstWindowShow = true; // Track if this is the first time showing the window
 let exitBehaviorSettings: { showExitPrompt: boolean; exitBehavior: 'minimize' | 'close' } = {
   showExitPrompt: true,
   exitBehavior: 'minimize',
 };
 
-// Get settings file path
-const getSettingsPath = () => {
-  const userDataPath = app.getPath('userData');
-  return path.join(userDataPath, 'settings.json');
+// ==================== Utility Functions ====================
+
+// Resource path helper
+const resourcePath = !process.env.NODE_ENV || process.env.NODE_ENV === "production"
+  ? process.resourcesPath // Live Mode
+  : __dirname; // Dev Mode
+
+// Path helpers
+const getSettingsPath = () => path.join(app.getPath('userData'), 'settings.json');
+const getFilesStoragePath = () => path.join(app.getPath('userData'), 'files-storage');
+
+// Debug mode check - disable autostart in debug/development mode
+const isDebugMode = (): boolean => {
+  return !app.isPackaged || process.env.DEBUG === 'true';
 };
 
-// Get files storage path
-const getFilesStoragePath = () => {
-  const userDataPath = app.getPath('userData');
-  return path.join(userDataPath, 'files-storage');
+// Linux autostart .desktop file management
+const getLinuxAutostartPath = (): string => {
+  const homeDir = app.getPath('home');
+  return path.join(homeDir, '.config', 'autostart', 'simpleprojector.desktop');
 };
 
-// Save exit behavior settings directly to disk
-const saveExitBehaviorToSettings = async () => {
-  try {
-    const settingsPath = getSettingsPath();
-    let settings: any = {};
-
-    // Load existing settings if they exist
-    if (existsSync(settingsPath)) {
-      const settingsData = await fs.readFile(settingsPath, 'utf-8');
-      settings = JSON.parse(settingsData);
-    }
-
-    // Update exit behavior settings
-    settings.showExitPrompt = exitBehaviorSettings.showExitPrompt;
-    settings.exitBehavior = exitBehaviorSettings.exitBehavior;
-
-    // Save back to disk
-    await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
-  } catch (error) {
-    console.error('Error saving exit behavior settings:', error);
+const getExecutablePath = (): string => {
+  if (app.isPackaged) {
+    // In production, use process.execPath which points to the executable
+    return process.execPath;
+  } else {
+    // In development, use electron executable with the app path
+    return process.execPath;
   }
 };
 
-const createWindow = () => {
-  // Get icon path and create icon
-  // Use icon.png for the main app window (general purpose)
-  // Try multiple possible paths for dev and production
-  const possiblePaths = [
-    path.join(app.getAppPath(), 'src/assets/icon.png'),  // Dev mode
-    path.join(app.getAppPath(), 'assets/icon.png'),      // Packaged
-    path.join(__dirname, '../../src/assets/icon.png'),   // Dev mode from .vite/build
-    path.join(__dirname, '../assets/icon.png'),          // Packaged
-  ];
+const createLinuxAutostartDesktop = async (bootInProjectorMode: boolean): Promise<void> => {
+  try {
+    const autostartDir = path.dirname(getLinuxAutostartPath());
+    await fs.mkdir(autostartDir, { recursive: true });
 
-  let icon: Electron.NativeImage | undefined;
+    const execPath = getExecutablePath();
+    // Escape the executable path if it contains spaces
+    const escapedExecPath = execPath.includes(' ') ? `"${execPath}"` : execPath;
+    const execArgs = bootInProjectorMode ? ' --projector-mode' : '';
+
+    // Find icon path
+    const iconPaths = [
+      path.join(resourcePath, 'assets/icon.png'),
+      path.join(app.getAppPath(), 'src/assets/icon.png'),
+    ];
+    let iconPath = '';
+    for (const iconPathCandidate of iconPaths) {
+      if (existsSync(iconPathCandidate)) {
+        iconPath = iconPathCandidate;
+        break;
+      }
+    }
+
+    const desktopContent = `[Desktop Entry]
+Type=Application
+Name=SimpleProjector
+Comment=SimpleProjector - Projector Application
+Exec=${escapedExecPath}${execArgs}
+Icon=${iconPath || 'application-default-icon'}
+Terminal=false
+Categories=Utility;
+X-GNOME-Autostart-enabled=true
+`;
+
+    await fs.writeFile(getLinuxAutostartPath(), desktopContent, 'utf-8');
+    console.log('Created Linux autostart .desktop file at:', getLinuxAutostartPath());
+  } catch (error) {
+    console.error('Error creating Linux autostart .desktop file:', error);
+    throw error;
+  }
+};
+
+const removeLinuxAutostartDesktop = async (): Promise<void> => {
+  try {
+    const autostartPath = getLinuxAutostartPath();
+    if (existsSync(autostartPath)) {
+      await fs.unlink(autostartPath);
+      console.log('Removed Linux autostart .desktop file');
+    }
+  } catch (error) {
+    console.error('Error removing Linux autostart .desktop file:', error);
+    throw error;
+  }
+};
+
+const updateLinuxAutostart = async (bootOnStartup: boolean, bootInProjectorMode: boolean): Promise<void> => {
+  if (process.platform !== 'linux') {
+    return;
+  }
+
+  // Disable autostart in debug mode
+  if (isDebugMode()) {
+    console.log('Autostart disabled in debug mode');
+    // Remove any existing autostart file if in debug mode
+    try {
+      await removeLinuxAutostartDesktop();
+    } catch (error) {
+      // Ignore errors when removing in debug mode
+    }
+    return;
+  }
+
+  try {
+    if (bootOnStartup) {
+      await createLinuxAutostartDesktop(bootInProjectorMode);
+    } else {
+      await removeLinuxAutostartDesktop();
+    }
+  } catch (error) {
+    console.error('Error updating Linux autostart:', error);
+    throw error;
+  }
+};
+
+// Window existence helpers
+const isMainWindowValid = (): boolean => mainWindow !== null && !mainWindow.isDestroyed();
+const isProjectorWindowValid = (): boolean => projectorWindow !== null && !projectorWindow.isDestroyed();
+
+// File type utilities
+const getFileExtension = (fileType: string): string => {
+  if (fileType === 'image') return '.png';
+  if (fileType === 'video') return '.mp4';
+  return '.pdf';
+};
+
+const getMimeType = (fileType: string, fileName?: string): string => {
+  if (fileType === 'video') return 'video/mp4';
+  if (fileType === 'document') return 'application/pdf';
+  if (fileName) {
+    const ext = path.extname(fileName).toLowerCase();
+    if (['.jpg', '.jpeg'].includes(ext)) return 'image/jpeg';
+    if (ext === '.gif') return 'image/gif';
+    if (ext === '.webp') return 'image/webp';
+  }
+  return 'image/png';
+};
+
+// Base64 conversion helper
+const extractBase64Data = (dataUrl: string): string => dataUrl.split(',')[1] || dataUrl;
+
+// Icon loading helper
+const loadIconFromPaths = (possiblePaths: string[]): Electron.NativeImage | undefined => {
   for (const iconPath of possiblePaths) {
     try {
       if (existsSync(iconPath)) {
-        icon = nativeImage.createFromPath(iconPath);
-        if (!icon.isEmpty()) {
-          console.log('Successfully loaded app icon from:', iconPath);
-          break;
+        const loadedIcon = nativeImage.createFromPath(iconPath);
+        if (!loadedIcon.isEmpty()) {
+          console.log('Successfully loaded icon from:', iconPath);
+          return loadedIcon;
         }
-        icon = undefined;
+        console.warn('Icon file is empty or not supported:', iconPath);
       }
     } catch (error) {
       console.warn(`Failed to load icon from ${iconPath}:`, error);
     }
   }
+  return undefined;
+};
 
-  if (!icon) {
-    console.warn('Could not load app icon from any path, using default');
+// Notification helpers
+const notifyProjectorWindow = (channel: string, ...args: any[]): void => {
+  if (isProjectorWindowValid()) {
+    projectorWindow!.webContents.send(channel, ...args);
   }
+};
+
+const notifyMainWindow = (channel: string, ...args: any[]): void => {
+  if (isMainWindowValid()) {
+    mainWindow!.webContents.send(channel, ...args);
+  }
+};
+
+const notifyBothWindows = (channel: string, ...args: any[]): void => {
+  notifyProjectorWindow(channel, ...args);
+  notifyMainWindow(channel, ...args);
+};
+
+// Settings management
+const loadSettings = async (): Promise<any> => {
+  try {
+    const settingsPath = getSettingsPath();
+    if (existsSync(settingsPath)) {
+      const settingsData = await fs.readFile(settingsPath, 'utf-8');
+      return JSON.parse(settingsData);
+    }
+  } catch (error) {
+    console.error('Error loading settings:', error);
+  }
+  return null;
+};
+
+const saveSettings = async (settings: any): Promise<void> => {
+  try {
+    const settingsPath = getSettingsPath();
+    await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+  } catch (error) {
+    console.error('Error saving settings:', error);
+  }
+};
+
+const saveExitBehaviorToSettings = async (): Promise<void> => {
+  const settings = await loadSettings() || {};
+  settings.showExitPrompt = exitBehaviorSettings.showExitPrompt;
+  settings.exitBehavior = exitBehaviorSettings.exitBehavior;
+  await saveSettings(settings);
+};
+
+const loadExitBehaviorSettings = async (): Promise<void> => {
+  const settings = await loadSettings();
+  if (settings) {
+    if (settings.showExitPrompt !== undefined) {
+      exitBehaviorSettings.showExitPrompt = settings.showExitPrompt;
+    }
+    if (settings.exitBehavior !== undefined) {
+      exitBehaviorSettings.exitBehavior = settings.exitBehavior;
+    }
+  }
+};
+
+// Window closing helper
+const closeApp = (): void => {
+  shouldMinimizeOnClose = true;
+  if (isProjectorWindowValid()) {
+    projectorWindow!.close();
+  }
+  setImmediate(() => {
+    if (isMainWindowValid()) {
+      mainWindow!.destroy();
+    }
+    app.quit();
+  });
+};
+
+const createWindow = () => {
+  const possiblePaths = [
+    path.join(resourcePath, 'assets/icon.png'),
+    path.join(resourcePath, 'assets/icon_taskbar.png'),
+    path.join(app.getAppPath(), 'src/assets/icon.png'),
+  ];
+
+  const icon = loadIconFromPaths(possiblePaths) || nativeImage.createEmpty();
 
   // Create the browser window.
   mainWindow = new BrowserWindow({
     width: 900,
     height: 700,
     title: 'SimpleProjector',
-    icon: icon,
+    icon: icon, // Use the loaded icon instead of hardcoded path
     frame: false,
     resizable: false,
     transparent: true, // Enable transparency for rounded corners
@@ -141,75 +328,72 @@ const createWindow = () => {
     );
   }
 
-  // Open the DevTools.
-  mainWindow.webContents.openDevTools();
+  // On Linux, explicitly set the icon after window is ready for better compatibility
+  // This ensures the icon appears correctly in taskbars (especially Wayland)
+  if (process.platform === 'linux' && icon && !icon.isEmpty()) {
+    // Also set the app name for better Linux integration
+    app.setName('SimpleProjector');
+  }
+
+  // Handle window ready-to-show: set Linux icon and check boot window state
+  mainWindow.once('ready-to-show', async () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      // On Linux, set icon after window is shown - this helps with Wayland compositors
+      if (process.platform === 'linux' && icon && !icon.isEmpty()) {
+        // Linux taskbars typically use 48x64 or 64x64 icons
+        // Resize to 64x64 for better visibility
+        const taskbarIcon = icon.resize({ width: 64, height: 64 });
+        mainWindow.setIcon(taskbarIcon);
+        console.log('Set Linux taskbar icon (64x64)');
+      }
+
+      // Handle boot window state (hide to tray on first launch if setting is enabled)
+      if (isFirstWindowShow) {
+        try {
+          const settings = await loadSettings();
+          if (settings && settings.bootWindowState === 'minimized') {
+            // Hide window to tray instead of minimizing to taskbar
+            mainWindow.hide();
+          }
+        } catch (error) {
+          console.error('Error loading boot window state setting:', error);
+        }
+        isFirstWindowShow = false;
+      }
+    }
+  });
+
+  // Open the DevTools (even in production for debugging)
+  if (!app.isPackaged || process.env.DEBUG === 'true') {
+    mainWindow.webContents.openDevTools();
+  }
 
   // Handle window close with confirmation
   mainWindow.on('close', async (event) => {
-    // If we're already minimizing or closing, proceed
     if (shouldMinimizeOnClose) {
       shouldMinimizeOnClose = false;
-      if (projectorWindow && !projectorWindow.isDestroyed()) {
-        projectorWindow.close();
+      if (isProjectorWindowValid()) {
+        projectorWindow!.close();
       }
       return;
     }
 
-    // Prevent default close
     event.preventDefault();
-
-    // Check if projector is active - if so, always show prompt as exception
-    const isProjectorActive = projectorWindow && !projectorWindow.isDestroyed();
-
-    // Check if we should show the prompt
-    // Reload settings from disk to ensure we have the latest values
-    try {
-      const settingsPath = getSettingsPath();
-      if (existsSync(settingsPath)) {
-        const settingsData = await fs.readFile(settingsPath, 'utf-8');
-        const settings = JSON.parse(settingsData);
-        if (settings.showExitPrompt !== undefined) {
-          exitBehaviorSettings.showExitPrompt = settings.showExitPrompt;
-        }
-        if (settings.exitBehavior !== undefined) {
-          exitBehaviorSettings.exitBehavior = settings.exitBehavior;
-        }
-      }
-    } catch (error) {
-      console.error('Error loading exit behavior settings:', error);
-    }
-
-    // If projector is active, always show prompt (exception)
-    // Otherwise, check the saved preference
+    const isProjectorActive = isProjectorWindowValid();
+    await loadExitBehaviorSettings();
     const shouldShowPrompt = isProjectorActive || exitBehaviorSettings.showExitPrompt;
 
     if (!shouldShowPrompt) {
-      // Use saved preference without showing dialog
       if (exitBehaviorSettings.exitBehavior === 'minimize') {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.hide();
+        if (isMainWindowValid()) {
+          mainWindow!.hide();
         }
       } else {
-        // Close completely
-        // Close projector window first
-        if (projectorWindow && !projectorWindow.isDestroyed()) {
-          projectorWindow.close();
-        }
-        // Set flag before destroying to prevent re-entry
-        shouldMinimizeOnClose = true;
-        // Use setImmediate to ensure any pending operations complete before destroying window
-        setImmediate(() => {
-          // Destroy main window and quit
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.destroy();
-          }
-          app.quit();
-        });
+        closeApp();
       }
       return;
     }
 
-    // Show confirmation dialog
     const choice = await dialog.showMessageBox(mainWindow!, {
       type: 'question',
       buttons: ['Minimize to Tray', 'Close Completely', 'Cancel'],
@@ -221,167 +405,81 @@ const createWindow = () => {
     });
 
     if (choice.response === 0) {
-      // Minimize to tray
-      // Only save preference if not projecting (exception case)
       if (!isProjectorActive) {
         exitBehaviorSettings.exitBehavior = 'minimize';
         exitBehaviorSettings.showExitPrompt = false;
-        // Save settings directly in main process
         await saveExitBehaviorToSettings();
       }
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.hide();
+      if (isMainWindowValid()) {
+        mainWindow!.hide();
       }
     } else if (choice.response === 1) {
-      // Close completely
-      // Only save preference if not projecting (exception case)
       if (!isProjectorActive) {
         exitBehaviorSettings.exitBehavior = 'close';
         exitBehaviorSettings.showExitPrompt = false;
-        // Save settings directly in main process (must complete before quitting)
         await saveExitBehaviorToSettings();
       }
-      // Close projector window first
-      if (projectorWindow && !projectorWindow.isDestroyed()) {
-        projectorWindow.close();
-      }
-      // Set flag before destroying to prevent re-entry
-      shouldMinimizeOnClose = true;
-      // Use setImmediate to ensure dialog cleanup is complete before destroying window
-      setImmediate(() => {
-        // Destroy main window and quit
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.destroy();
-        }
-        app.quit();
-      });
+      closeApp();
     }
-    // If response is 2 (Cancel), do nothing - window stays open
   });
 };
 
 const createTray = () => {
-  // Get icon path and create tray icon
-  // Use icon_taskbar.png for the system tray notification icon
-  // Try multiple possible paths for dev and production
   const possiblePaths = [
-    path.join(app.getAppPath(), 'src/assets/icon_taskbar.png'),  // Dev mode
-    path.join(app.getAppPath(), 'assets/icon_taskbar.png'),      // Packaged
-    path.join(__dirname, '../../src/assets/icon_taskbar.png'),   // Dev mode from .vite/build
-    path.join(__dirname, '../assets/icon_taskbar.png'),          // Packaged
+    path.join(resourcePath, 'assets/icon_taskbar.png'),
+    path.join(app.getAppPath(), 'src/assets/icon_taskbar.png'),
   ];
 
   const size = process.platform === 'darwin' ? 22 : 16;
-
-  // Fallback icon data
   const fallbackIconData = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
     'base64'
   );
-  let icon: Electron.NativeImage = nativeImage.createFromBuffer(fallbackIconData);
-  let iconLoaded = false;
-
-  for (const iconPath of possiblePaths) {
-    console.log('Checking tray icon path:', iconPath, 'exists:', existsSync(iconPath));
-    try {
-      if (existsSync(iconPath)) {
-        const loadedIcon = nativeImage.createFromPath(iconPath);
-        // Check if icon is empty (format might not be supported)
-        if (!loadedIcon.isEmpty()) {
-          icon = loadedIcon;
-          iconLoaded = true;
-          console.log('Successfully loaded tray icon from:', iconPath);
-          break; // Successfully loaded icon
-        } else {
-          console.warn('Tray icon file is empty or not supported:', iconPath);
-        }
-      }
-    } catch (error) {
-      console.warn(`Failed to load tray icon from ${iconPath}:`, error);
-      continue;
-    }
-  }
-
-  if (!iconLoaded) {
-    console.warn('Could not load tray icon, using default');
-  }
-
-  // Resize to appropriate size for tray
-  icon = icon.resize({ width: size, height: size });
+  const icon = (loadIconFromPaths(possiblePaths) || nativeImage.createFromBuffer(fallbackIconData))
+    .resize({ width: size, height: size });
 
   tray = new Tray(icon);
 
-  // Create context menu
+  const showMainWindow = () => {
+    if (isMainWindowValid()) {
+      if (mainWindow!.isMinimized()) {
+        mainWindow!.restore();
+      }
+      mainWindow!.show();
+      mainWindow!.focus();
+    }
+  };
+
   const contextMenu = Menu.buildFromTemplate([
     {
       label: 'Show Window',
-      click: () => {
-        if (mainWindow) {
-          mainWindow.show();
-          mainWindow.focus();
-        }
-      },
+      click: showMainWindow,
     },
     {
       label: 'Open Projector',
-      click: () => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          // Send message to renderer to open projector
-          mainWindow.webContents.send('tray-open-projector');
-        }
-      },
+      click: () => notifyMainWindow('tray-open-projector'),
     },
     { type: 'separator' },
     {
       label: 'Quit',
-      click: () => {
-        shouldMinimizeOnClose = true;
-        // Close projector window first
-        if (projectorWindow && !projectorWindow.isDestroyed()) {
-          projectorWindow.close();
-        }
-        // Use setImmediate to ensure any pending operations complete before destroying window
-        setImmediate(() => {
-          // Destroy main window and quit
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.destroy();
-          }
-          app.quit();
-        });
-      },
+      click: closeApp,
     },
   ]);
 
   tray.setToolTip('SimpleProjector');
   tray.setContextMenu(contextMenu);
 
-  // Single-click to toggle window (show if hidden, minimize to tray if visible)
   tray.on('click', () => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      if (mainWindow.isVisible()) {
-        // Window is visible, minimize to tray
-        mainWindow.hide();
+    if (isMainWindowValid()) {
+      if (mainWindow!.isVisible()) {
+        mainWindow!.hide();
       } else {
-        // Window is hidden or minimized, show it
-        if (mainWindow.isMinimized()) {
-          mainWindow.restore();
-        }
-        mainWindow.show();
-        mainWindow.focus();
+        showMainWindow();
       }
     }
   });
 
-  // Double-click to show window (backup for platforms where single-click doesn't work)
-  tray.on('double-click', () => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      if (mainWindow.isMinimized()) {
-        mainWindow.restore();
-      }
-      mainWindow.show();
-      mainWindow.focus();
-    }
-  });
+  tray.on('double-click', showMainWindow);
 };
 
 const shuffleArray = <T>(array: T[]): T[] => {
@@ -415,35 +513,27 @@ const createProjectorWindow = (files: Array<{ id: string; name: string; type: st
     projectorFilesOrder = files.map((_, i) => i);
   }
 
-  if (projectorWindow && !projectorWindow.isDestroyed()) {
-    // Update fullscreen if setting changed
-    const isFullscreen = projectorWindow.isFullScreen();
+  if (isProjectorWindowValid()) {
+    const isFullscreen = projectorWindow!.isFullScreen();
     if (validatedSettings.openFullscreen && !isFullscreen) {
       setTimeout(() => {
-        if (projectorWindow && !projectorWindow.isDestroyed()) {
-          projectorWindow.setFullScreen(true);
+        if (isProjectorWindowValid()) {
+          projectorWindow!.setFullScreen(true);
         }
       }, 100);
     } else if (!validatedSettings.openFullscreen && isFullscreen) {
-      projectorWindow.setFullScreen(false);
+      projectorWindow!.setFullScreen(false);
     }
 
-    projectorWindow.focus();
-    projectorWindow.webContents.send('projector-settings', validatedSettings);
+    projectorWindow!.focus();
     const initialIndex = projectorFilesOrder.length > 0 ? projectorFilesOrder[0] : 0;
-    projectorWindow.webContents.send('projector-navigate', initialIndex);
-    // Sync play/pause state if auto-advance is enabled
+    notifyProjectorWindow('projector-settings', validatedSettings);
+    notifyProjectorWindow('projector-navigate', initialIndex);
     if (isProjectorPlaying) {
-      projectorWindow.webContents.send('projector-play-pause', true);
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('projector-play-pause', true);
-      }
+      notifyBothWindows('projector-play-pause', true);
     }
-    // Notify main window that projector is open and send initial index
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('projector-opened');
-      mainWindow.webContents.send('projector-navigate', initialIndex);
-    }
+    notifyMainWindow('projector-opened');
+    notifyMainWindow('projector-navigate', initialIndex);
     return;
   }
 
@@ -461,61 +551,59 @@ const createProjectorWindow = (files: Array<{ id: string; name: string; type: st
 
   projectorWindow = new BrowserWindow(windowOptions);
 
-  // Handle window showing and fullscreen
   projectorWindow.once('ready-to-show', () => {
-    if (projectorWindow && !projectorWindow.isDestroyed()) {
-      // Show the window
-      projectorWindow.show();
-
-      // Set fullscreen if requested - must be done after showing
+    if (isProjectorWindowValid()) {
+      projectorWindow!.show();
       if (validatedSettings.openFullscreen) {
         setTimeout(() => {
-          if (projectorWindow && !projectorWindow.isDestroyed()) {
-            projectorWindow.setFullScreen(true);
+          if (isProjectorWindowValid()) {
+            projectorWindow!.setFullScreen(true);
           }
         }, 100);
       }
     }
   });
 
+  // Enable DevTools for projector window in development
+  if (!app.isPackaged || process.env.DEBUG === 'true') {
+    projectorWindow.webContents.openDevTools();
+  }
+
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     projectorWindow.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}/projector.html`);
   } else {
-    const projectorHtmlPath = path.join(__dirname, '../projector.html');
+    // In packaged mode, load from the built renderer directory
+    const projectorWindowName = typeof PROJECTOR_WINDOW_VITE_NAME !== 'undefined' && PROJECTOR_WINDOW_VITE_NAME
+      ? PROJECTOR_WINDOW_VITE_NAME
+      : 'projector_window';
+
+    const projectorHtmlPath = path.join(__dirname, `../renderer/${projectorWindowName}/projector.html`);
     projectorWindow.loadFile(projectorHtmlPath);
   }
 
-  // Handle F11 fullscreen toggle
   projectorWindow.webContents.on('before-input-event', (event, input) => {
-    if (input.key === 'F11') {
+    if (input.key === 'F11' && isProjectorWindowValid()) {
       event.preventDefault();
-      if (projectorWindow) {
-        const isFullscreen = projectorWindow.isFullScreen();
-        projectorWindow.setFullScreen(!isFullscreen);
-        // Notify renderer about fullscreen state change
-        projectorWindow.webContents.send('projector-fullscreen-changed', !isFullscreen);
-      }
+      const isFullscreen = projectorWindow!.isFullScreen();
+      projectorWindow!.setFullScreen(!isFullscreen);
+      notifyProjectorWindow('projector-fullscreen-changed', !isFullscreen);
     }
   });
 
-  // Listen for fullscreen changes
   projectorWindow.on('enter-full-screen', () => {
-    if (projectorWindow) {
-      projectorWindow.webContents.send('projector-fullscreen-changed', true);
+    if (isProjectorWindowValid()) {
+      notifyProjectorWindow('projector-fullscreen-changed', true);
     }
   });
 
   projectorWindow.on('leave-full-screen', () => {
-    if (projectorWindow) {
-      projectorWindow.webContents.send('projector-fullscreen-changed', false);
+    if (isProjectorWindowValid()) {
+      notifyProjectorWindow('projector-fullscreen-changed', false);
     }
   });
 
   projectorWindow.on('closed', () => {
-    // Notify main window that projector closed
-    if (mainWindow) {
-      mainWindow.webContents.send('projector-closed');
-    }
+    notifyMainWindow('projector-closed');
     projectorWindow = null;
     projectorFiles = [];
     projectorFilesOrder = [];
@@ -525,24 +613,16 @@ const createProjectorWindow = (files: Array<{ id: string; name: string; type: st
     projectorSettings = null;
   });
 
-  // Send settings to projector window once it's ready
   projectorWindow.webContents.once('did-finish-load', () => {
-    if (projectorWindow && projectorSettings) {
-      projectorWindow.webContents.send('projector-settings', projectorSettings);
+    if (isProjectorWindowValid() && projectorSettings) {
       const initialIndex = projectorFilesOrder.length > 0 ? projectorFilesOrder[0] : 0;
-      projectorWindow.webContents.send('projector-navigate', initialIndex);
-      // Sync play/pause state if auto-advance is enabled
+      notifyProjectorWindow('projector-settings', projectorSettings);
+      notifyProjectorWindow('projector-navigate', initialIndex);
       if (isProjectorPlaying) {
-        projectorWindow.webContents.send('projector-play-pause', true);
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('projector-play-pause', true);
-        }
+        notifyBothWindows('projector-play-pause', true);
       }
-      // Notify main window that projector is open and send initial index
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('projector-opened');
-        mainWindow.webContents.send('projector-navigate', initialIndex);
-      }
+      notifyMainWindow('projector-opened');
+      notifyMainWindow('projector-navigate', initialIndex);
     }
   });
 };
@@ -551,239 +631,194 @@ const createProjectorWindow = (files: Array<{ id: string; name: string; type: st
 const registerIpcHandlers = () => {
   ipcMain.handle('open-projector-window', async (_event, files, settings) => {
     createProjectorWindow(files, settings);
-    // Notify main window that projector opened
-    if (mainWindow) {
-      mainWindow.webContents.send('projector-opened');
-    }
+    notifyMainWindow('projector-opened');
     return { success: true };
   });
 
   ipcMain.handle('close-projector-window', async () => {
-    if (projectorWindow) {
-      projectorWindow.close();
-      return { success: true };
-    }
-    return { success: false };
+    if (!isProjectorWindowValid()) return { success: false };
+    projectorWindow!.close();
+    return { success: true };
   });
 
+  const navigateToBackground = (): { success: true; index: -1 } => {
+    isProjectorPlaying = false;
+    isShowingBackground = true;
+    notifyBothWindows('projector-play-pause', false);
+    notifyBothWindows('projector-navigate', -1);
+    return { success: true, index: -1 };
+  };
+
+  const navigateToIndex = (index: number): { success: true; index: number } => {
+    isShowingBackground = false;
+    notifyBothWindows('projector-navigate', index);
+    return { success: true, index };
+  };
+
   ipcMain.handle('navigate-projector', async (_event, direction: 'next' | 'previous') => {
-    if (!projectorWindow || projectorFiles.length === 0 || projectorFilesOrder.length === 0) {
-      // If no files, send -1 to show background
+    if (!isProjectorWindowValid() || projectorFiles.length === 0 || projectorFilesOrder.length === 0) {
       isShowingBackground = true;
-      if (projectorWindow) {
-        projectorWindow.webContents.send('projector-navigate', -1);
-      }
-      // Also notify main window
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('projector-navigate', -1);
-      }
+      notifyBothWindows('projector-navigate', -1);
       return { success: true, index: -1 };
     }
 
-    // If we're currently showing background, navigate to the appropriate end
     if (isShowingBackground) {
       isShowingBackground = false;
-      if (direction === 'next') {
-        // From background, forward goes to first item
-        currentProjectorIndex = 0;
-      } else {
-        // From background, backward goes to last item
-        currentProjectorIndex = projectorFilesOrder.length - 1;
-      }
-      const actualIndex = projectorFilesOrder[currentProjectorIndex];
-      projectorWindow.webContents.send('projector-navigate', actualIndex);
-      // Also notify main window with the actual flattened index
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('projector-navigate', actualIndex);
-      }
-      return { success: true, index: actualIndex };
+      currentProjectorIndex = direction === 'next' ? 0 : projectorFilesOrder.length - 1;
+      return navigateToIndex(projectorFilesOrder[currentProjectorIndex]);
     }
+
+    // Get current file index before navigation
+    const currentFileIndex = projectorFilesOrder[currentProjectorIndex];
 
     if (direction === 'next') {
       const nextIndex = currentProjectorIndex + 1;
-      // If at end and not looping, navigate to background
       if (nextIndex >= projectorFilesOrder.length && projectorSettings && !projectorSettings.loop) {
-        isProjectorPlaying = false;
-        isShowingBackground = true;
-        if (projectorWindow) {
-          projectorWindow.webContents.send('projector-play-pause', false);
-          projectorWindow.webContents.send('projector-navigate', -1);
-        }
-        // Also notify main window
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('projector-play-pause', false);
-          mainWindow.webContents.send('projector-navigate', -1);
-        }
-        // Return -1 to show background
-        return { success: true, index: -1 };
+        return navigateToBackground();
       }
       currentProjectorIndex = nextIndex % projectorFilesOrder.length;
+
+      // In random mode, ensure we don't select the same item twice in a row
+      if (projectorSettings && projectorSettings.random && projectorSettings.loop && projectorFilesOrder.length > 1) {
+        // If the next item is the same as current, skip to the next one
+        if (projectorFilesOrder[currentProjectorIndex] === currentFileIndex) {
+          // Find next different item
+          let foundDifferent = false;
+          const startIndex = currentProjectorIndex;
+          do {
+            currentProjectorIndex = (currentProjectorIndex + 1) % projectorFilesOrder.length;
+            if (projectorFilesOrder[currentProjectorIndex] !== currentFileIndex) {
+              foundDifferent = true;
+            }
+            // Prevent infinite loop - if we've checked all items and they're all the same, break
+            if (currentProjectorIndex === startIndex) {
+              break;
+            }
+          } while (!foundDifferent && projectorFilesOrder[currentProjectorIndex] === currentFileIndex);
+        }
+      }
     } else {
       const prevIndex = currentProjectorIndex - 1;
       if (prevIndex < 0) {
-        // If at beginning and not looping, navigate to background
         if (projectorSettings && !projectorSettings.loop) {
-          isProjectorPlaying = false;
-          isShowingBackground = true;
-          if (projectorWindow) {
-            projectorWindow.webContents.send('projector-play-pause', false);
-            projectorWindow.webContents.send('projector-navigate', -1);
+          return navigateToBackground();
+        }
+        currentProjectorIndex = projectorFilesOrder.length - 1;
+
+        // In random mode, ensure we don't select the same item twice in a row
+        if (projectorSettings && projectorSettings.random && projectorSettings.loop && projectorFilesOrder.length > 1) {
+          // If the previous item is the same as current, skip to the previous one
+          if (projectorFilesOrder[currentProjectorIndex] === currentFileIndex) {
+            // Find previous different item
+            let foundDifferent = false;
+            const startIndex = currentProjectorIndex;
+            do {
+              currentProjectorIndex = (currentProjectorIndex - 1 + projectorFilesOrder.length) % projectorFilesOrder.length;
+              if (projectorFilesOrder[currentProjectorIndex] !== currentFileIndex) {
+                foundDifferent = true;
+              }
+              // Prevent infinite loop - if we've checked all items and they're all the same, break
+              if (currentProjectorIndex === startIndex) {
+                break;
+              }
+            } while (!foundDifferent && projectorFilesOrder[currentProjectorIndex] === currentFileIndex);
           }
-          // Also notify main window
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('projector-play-pause', false);
-            mainWindow.webContents.send('projector-navigate', -1);
-          }
-          // Return -1 to show background
-          return { success: true, index: -1 };
-        } else {
-          currentProjectorIndex = projectorFilesOrder.length - 1;
         }
       } else {
         currentProjectorIndex = prevIndex;
       }
     }
 
-    const actualIndex = projectorFilesOrder[currentProjectorIndex];
-    isShowingBackground = false; // Reset flag when navigating to a file
-    projectorWindow.webContents.send('projector-navigate', actualIndex);
-    // Also notify main window with the actual flattened index
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('projector-navigate', actualIndex);
-    }
-    return { success: true, index: actualIndex };
+    return navigateToIndex(projectorFilesOrder[currentProjectorIndex]);
   });
 
   ipcMain.handle('navigate-projector-to-index', async (_event, targetIndex: number) => {
-    if (!projectorWindow || projectorFiles.length === 0 || projectorFilesOrder.length === 0) {
+    if (!isProjectorWindowValid() || projectorFiles.length === 0 || projectorFilesOrder.length === 0) {
       return { success: false };
     }
 
-    // Validate the target index
     if (targetIndex < 0 || targetIndex >= projectorFiles.length) {
       return { success: false };
     }
 
-    // Find the position in projectorFilesOrder that corresponds to this file index
     const orderIndex = projectorFilesOrder.indexOf(targetIndex);
     if (orderIndex < 0) {
       return { success: false };
     }
 
-    // Update current projector index
     currentProjectorIndex = orderIndex;
-    isShowingBackground = false; // Reset flag when navigating to a file
-
-    // Navigate to the target index
-    projectorWindow.webContents.send('projector-navigate', targetIndex);
-    // Also notify main window
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('projector-navigate', targetIndex);
-    }
-
-    return { success: true, index: targetIndex };
+    return navigateToIndex(targetIndex);
   });
 
   ipcMain.handle('toggle-projector-play-pause', async () => {
-    if (!projectorWindow) return { success: false };
+    if (!isProjectorWindowValid()) return { success: false };
 
     const wasPlaying = isProjectorPlaying;
     isProjectorPlaying = !isProjectorPlaying;
 
-    // If we're showing background and user wants to play, navigate to first item
     if (isShowingBackground && isProjectorPlaying && !wasPlaying && projectorFilesOrder.length > 0) {
       isShowingBackground = false;
       currentProjectorIndex = 0;
-      const actualIndex = projectorFilesOrder[currentProjectorIndex];
-      projectorWindow.webContents.send('projector-navigate', actualIndex);
-      // Also notify main window
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('projector-navigate', actualIndex);
-      }
+      notifyBothWindows('projector-navigate', projectorFilesOrder[currentProjectorIndex]);
     }
 
-    projectorWindow.webContents.send('projector-play-pause', isProjectorPlaying);
-    // Also notify main window
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('projector-play-pause', isProjectorPlaying);
-    }
+    notifyBothWindows('projector-play-pause', isProjectorPlaying);
     return { success: true, isPlaying: isProjectorPlaying };
   });
 
   ipcMain.handle('notify-projector-index-change', async (_event, index: number) => {
-    // Update the current projector index based on the file index
-    // The index parameter is the index in the projectorFiles array
-    // We need to find which position in projectorFilesOrder corresponds to this file index
     if (index < 0) {
-      // Background shown
       isShowingBackground = true;
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('projector-navigate', -1);
-      }
+      notifyMainWindow('projector-navigate', -1);
       return { success: true };
     }
 
-    // Find the position in projectorFilesOrder that corresponds to this file index
     const orderIndex = projectorFilesOrder.indexOf(index);
     if (orderIndex >= 0) {
       currentProjectorIndex = orderIndex;
-      isShowingBackground = false; // Reset flag when navigating to a file
-      // Send the actual flattened index to the main window
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('projector-navigate', index);
-      }
+      isShowingBackground = false;
+      notifyMainWindow('projector-navigate', index);
     }
 
     return { success: true };
   });
 
   ipcMain.handle('update-projector-settings', async (_event, settings) => {
-    if (!projectorWindow) return { success: false };
+    if (!isProjectorWindowValid()) return { success: false };
 
-    // Ensure random is disabled if loop is disabled
     const validatedSettings = {
       ...settings,
       random: settings.loop ? settings.random : false,
     };
 
     projectorSettings = validatedSettings;
+    projectorFilesOrder = validatedSettings.random
+      ? shuffleArray(projectorFiles.map((_, i) => i))
+      : projectorFiles.map((_, i) => i);
 
-    // Recreate order if random setting changed
-    if (validatedSettings.random) {
-      projectorFilesOrder = shuffleArray(projectorFiles.map((_, i) => i));
-    } else {
-      projectorFilesOrder = projectorFiles.map((_, i) => i);
-    }
-
-    projectorWindow.webContents.send('projector-settings', validatedSettings);
+    notifyProjectorWindow('projector-settings', validatedSettings);
     return { success: true };
   });
 
   ipcMain.handle('update-projector-volume', async (_event, volume: number) => {
-    if (!projectorWindow) return { success: false };
-
-    projectorWindow.webContents.send('projector-volume', volume);
+    if (!isProjectorWindowValid()) return { success: false };
+    notifyProjectorWindow('projector-volume', volume);
     return { success: true };
   });
 
   ipcMain.handle('seek-projector-video', async (_event, time: number) => {
-    if (!projectorWindow) return { success: false };
-
-    projectorWindow.webContents.send('projector-seek-video', time);
+    if (!isProjectorWindowValid()) return { success: false };
+    notifyProjectorWindow('projector-seek-video', time);
     return { success: true };
   });
 
   ipcMain.handle('send-video-progress', async (_event, progress: { currentTime: number; duration: number }) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('projector-video-progress', progress);
-    }
+    notifyMainWindow('projector-video-progress', progress);
     return { success: true };
   });
 
   ipcMain.handle('send-timer-progress', async (_event, progress: { elapsed: number; total: number }) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('projector-timer-progress', progress);
-    }
+    notifyMainWindow('projector-timer-progress', progress);
     return { success: true };
   });
 
@@ -804,114 +839,117 @@ const registerIpcHandlers = () => {
   });
 
   ipcMain.handle('toggle-projector-fullscreen', async () => {
-    if (!projectorWindow || projectorWindow.isDestroyed()) return { success: false };
-
-    const isFullscreen = projectorWindow.isFullScreen();
-    projectorWindow.setFullScreen(!isFullscreen);
+    if (!isProjectorWindowValid()) return { success: false };
+    const isFullscreen = projectorWindow!.isFullScreen();
+    projectorWindow!.setFullScreen(!isFullscreen);
     return { success: true, isFullscreen: !isFullscreen };
   });
 
   ipcMain.handle('is-projector-fullscreen', async () => {
-    if (!projectorWindow || projectorWindow.isDestroyed()) return false;
-    return projectorWindow.isFullScreen();
+    return isProjectorWindowValid() ? projectorWindow!.isFullScreen() : false;
   });
 
   ipcMain.handle('update-projector-files', async (_event, files: Array<{ id: string; name: string; type: string; data: string }>) => {
-    if (!projectorWindow) return { success: false };
+    if (!isProjectorWindowValid()) return { success: false };
 
     projectorFiles = files;
 
-    // Ensure random is disabled if loop is disabled (safety check)
     if (projectorSettings && !projectorSettings.loop) {
       projectorSettings.random = false;
     }
 
-    // Recreate order array based on current settings
-    if (projectorSettings?.random && projectorSettings?.loop) {
-      projectorFilesOrder = shuffleArray(files.map((_, i) => i));
-    } else {
-      projectorFilesOrder = files.map((_, i) => i);
-    }
+    projectorFilesOrder = (projectorSettings?.random && projectorSettings?.loop)
+      ? shuffleArray(files.map((_, i) => i))
+      : files.map((_, i) => i);
 
-    // Reset current index if it's out of bounds
     if (currentProjectorIndex >= projectorFilesOrder.length) {
       currentProjectorIndex = Math.max(0, projectorFilesOrder.length - 1);
     }
 
-    // Send updated files to projector window
-    projectorWindow.webContents.send('projector-files-updated', files);
+    notifyProjectorWindow('projector-files-updated', files);
 
-    // Update navigation if needed
     if (projectorFilesOrder.length > 0 && currentProjectorIndex >= 0) {
-      const actualIndex = projectorFilesOrder[currentProjectorIndex];
-      isShowingBackground = false; // Reset flag when navigating to a file
-      projectorWindow.webContents.send('projector-navigate', actualIndex);
-      // Also notify main window
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('projector-navigate', actualIndex);
-      }
+      navigateToIndex(projectorFilesOrder[currentProjectorIndex]);
     } else {
-      isShowingBackground = true; // Set flag when showing background
-      projectorWindow.webContents.send('projector-navigate', -1);
-      // Also notify main window
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('projector-navigate', -1);
-      }
+      isShowingBackground = true;
+      notifyBothWindows('projector-navigate', -1);
     }
 
     return { success: true };
   });
 
-  // Window control handlers
   ipcMain.handle('window-minimize', async () => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.minimize();
-      return { success: true };
-    }
-    return { success: false };
+    if (!isMainWindowValid()) return { success: false };
+    mainWindow!.minimize();
+    return { success: true };
   });
 
   ipcMain.handle('window-maximize', async () => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      if (mainWindow.isMaximized()) {
-        mainWindow.unmaximize();
-      } else {
-        mainWindow.maximize();
-      }
-      return { success: true, isMaximized: mainWindow.isMaximized() };
+    if (!isMainWindowValid()) return { success: false };
+    if (mainWindow!.isMaximized()) {
+      mainWindow!.unmaximize();
+    } else {
+      mainWindow!.maximize();
     }
-    return { success: false };
+    return { success: true, isMaximized: mainWindow!.isMaximized() };
   });
 
   ipcMain.handle('window-close', async () => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.close();
-      return { success: true };
-    }
-    return { success: false };
+    if (!isMainWindowValid()) return { success: false };
+    mainWindow!.close();
+    return { success: true };
   });
 
   ipcMain.handle('window-is-maximized', async () => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      return mainWindow.isMaximized();
-    }
-    return false;
+    return isMainWindowValid() ? mainWindow!.isMaximized() : false;
   });
 
   // Startup settings handlers
   ipcMain.handle('update-startup-settings', async (_event, settings: { bootOnStartup: boolean; bootInProjectorMode: boolean }) => {
     appSettings = settings;
 
-    // Update login item settings
-    const loginItemSettings: Electron.Settings = {
-      openAtLogin: settings.bootOnStartup,
-      openAsHidden: false,
-      args: settings.bootInProjectorMode ? ['--projector-mode'] : [],
-    };
+    // Disable autostart in debug mode
+    if (isDebugMode()) {
+      console.log('Autostart disabled in debug mode');
+      // Remove any existing autostart configuration
+      if (process.platform === 'linux') {
+        try {
+          await removeLinuxAutostartDesktop();
+        } catch (error) {
+          // Ignore errors when removing in debug mode
+        }
+      } else {
+        // Windows/macOS: Disable login item settings
+        const loginItemSettings: Electron.Settings = {
+          openAtLogin: false,
+          openAsHidden: false,
+          args: [],
+        };
+        app.setLoginItemSettings(loginItemSettings);
+      }
+      return { success: true };
+    }
 
-    app.setLoginItemSettings(loginItemSettings);
+    if (process.platform === 'linux') {
+      // Linux: Use .desktop file approach
+      try {
+        await updateLinuxAutostart(settings.bootOnStartup, settings.bootInProjectorMode);
+        return { success: true };
+      } catch (error) {
+        console.error('Error updating Linux autostart:', error);
+        return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+      }
+    } else {
+      // Windows/macOS: Use Electron's built-in login item settings
+      const loginItemSettings: Electron.Settings = {
+        openAtLogin: settings.bootOnStartup,
+        openAsHidden: false,
+        args: settings.bootInProjectorMode ? ['--projector-mode'] : [],
+      };
 
-    return { success: true };
+      app.setLoginItemSettings(loginItemSettings);
+      return { success: true };
+    }
   });
 
   ipcMain.handle('get-startup-settings', async () => {
@@ -929,35 +967,15 @@ const registerIpcHandlers = () => {
     return exitBehaviorSettings;
   });
 
-  // Handle tray open projector event
   ipcMain.on('tray-open-projector-request', async () => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      // Request files and settings from renderer
-      mainWindow.webContents.send('tray-open-projector-request');
-    }
+    notifyMainWindow('tray-open-projector-request');
   });
 
-  // Load persistent settings
-  ipcMain.handle('load-settings', async () => {
-    try {
-      const settingsPath = getSettingsPath();
-      if (existsSync(settingsPath)) {
-        const settingsData = await fs.readFile(settingsPath, 'utf-8');
-        return JSON.parse(settingsData);
-      }
-      return null;
-    } catch (error) {
-      console.error('Error loading settings:', error);
-      return null;
-    }
-  });
+  ipcMain.handle('load-settings', async () => loadSettings());
 
-  // Save persistent settings
   ipcMain.handle('save-settings', async (_event, settings: any) => {
     try {
-      const settingsPath = getSettingsPath();
-      await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
-      // Update exit behavior settings in main process
+      await saveSettings(settings);
       if (settings.showExitPrompt !== undefined) {
         exitBehaviorSettings.showExitPrompt = settings.showExitPrompt;
       }
@@ -1000,19 +1018,14 @@ const registerIpcHandlers = () => {
       };
       await fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2), 'utf-8');
 
-      // Save files
       for (const file of filesData) {
         const safeName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
-        const fileExtension = path.extname(safeName) || (file.type === 'image' ? '.png' : file.type === 'video' ? '.mp4' : '.pdf');
-        const baseName = path.basename(safeName, fileExtension);
+        const fileExtension = path.extname(safeName) || getFileExtension(file.type);
         const savedFileName = file.pageNumber
           ? `${file.id}_page${file.pageNumber}${fileExtension}`
           : `${file.id}${fileExtension}`;
-        const savedFilePath = path.join(filesDir, savedFileName);
-
-        const base64Data = file.data.split(',')[1] || file.data;
-        const buffer = Buffer.from(base64Data, 'base64');
-        await fs.writeFile(savedFilePath, buffer);
+        const buffer = Buffer.from(extractBase64Data(file.data), 'base64');
+        await fs.writeFile(path.join(filesDir, savedFileName), buffer);
       }
 
       return { success: true };
@@ -1022,22 +1035,12 @@ const registerIpcHandlers = () => {
     }
   });
 
-  // Save thumbnail to persistence
   ipcMain.handle('save-thumbnail', async (_event, fileId: string, thumbnailData: string) => {
     try {
-      const storagePath = getFilesStoragePath();
-      const thumbnailsDir = path.join(storagePath, 'thumbnails');
-
-      // Create thumbnails directory
+      const thumbnailsDir = path.join(getFilesStoragePath(), 'thumbnails');
       await fs.mkdir(thumbnailsDir, { recursive: true });
-
-      const thumbnailPath = path.join(thumbnailsDir, `${fileId}.jpg`);
-
-      // Convert base64 data URL to buffer and save
-      const base64Data = thumbnailData.split(',')[1] || thumbnailData;
-      const buffer = Buffer.from(base64Data, 'base64');
-      await fs.writeFile(thumbnailPath, buffer);
-
+      const buffer = Buffer.from(extractBase64Data(thumbnailData), 'base64');
+      await fs.writeFile(path.join(thumbnailsDir, `${fileId}.jpg`), buffer);
       return { success: true };
     } catch (error) {
       console.error('Error saving thumbnail:', error);
@@ -1082,15 +1085,9 @@ const registerIpcHandlers = () => {
       // Create storage directory
       await fs.mkdir(filesDir, { recursive: true });
 
-      // Determine file extension
-      const fileExtension = fileData.type === 'image' ? '.png' : fileData.type === 'video' ? '.mp4' : '.pdf';
-      const savedFileName = `${fileData.id}${fileExtension}`;
-      const savedFilePath = path.join(filesDir, savedFileName);
-
-      // Convert base64 to buffer and save
-      const base64Data = fileData.data.split(',')[1] || fileData.data;
-      const buffer = Buffer.from(base64Data, 'base64');
-      await fs.writeFile(savedFilePath, buffer);
+      const savedFileName = `${fileData.id}${getFileExtension(fileData.type)}`;
+      const buffer = Buffer.from(extractBase64Data(fileData.data), 'base64');
+      await fs.writeFile(path.join(filesDir, savedFileName), buffer);
 
       // Update metadata to include this file
       let metadata: { fileOrder: string[]; files: Array<{ id: string; name: string; type: string; pageNumber?: number }>; timestamp: string } = {
@@ -1145,10 +1142,7 @@ const registerIpcHandlers = () => {
       const filesDir = path.join(storagePath, 'files');
       const metadataPath = path.join(storagePath, 'metadata.json');
 
-      // Determine file extension
-      const fileExtension = fileType === 'image' ? '.png' : fileType === 'video' ? '.mp4' : '.pdf';
-      const savedFileName = `${fileId}${fileExtension}`;
-      const savedFilePath = path.join(filesDir, savedFileName);
+      const savedFilePath = path.join(filesDir, `${fileId}${getFileExtension(fileType)}`);
 
       // Delete the file if it exists
       if (existsSync(savedFilePath)) {
@@ -1241,32 +1235,20 @@ const registerIpcHandlers = () => {
       }> = [];
 
       for (const fileMeta of metadata.files) {
-        const fileExtension = fileMeta.type === 'image' ? '.png' : fileMeta.type === 'video' ? '.mp4' : '.pdf';
         const savedFileName = fileMeta.pageNumber
-          ? `${fileMeta.id}_page${fileMeta.pageNumber}${fileExtension}`
-          : `${fileMeta.id}${fileExtension}`;
+          ? `${fileMeta.id}_page${fileMeta.pageNumber}${getFileExtension(fileMeta.type)}`
+          : `${fileMeta.id}${getFileExtension(fileMeta.type)}`;
         const filePath = path.join(filesDir, savedFileName);
 
         if (existsSync(filePath)) {
           const fileBuffer = await fs.readFile(filePath);
           const base64Data = fileBuffer.toString('base64');
-
-          // Determine mime type
-          let mimeType = 'image/png';
-          if (fileMeta.type === 'video') {
-            mimeType = 'video/mp4';
-          } else if (fileMeta.type === 'document') {
-            mimeType = 'application/pdf';
-          } else if (path.extname(savedFileName).toLowerCase() === '.jpg' || path.extname(savedFileName).toLowerCase() === '.jpeg') {
-            mimeType = 'image/jpeg';
-          }
-
-          const dataUrl = `data:${mimeType};base64,${base64Data}`;
+          const mimeType = getMimeType(fileMeta.type, savedFileName);
           files.push({
             id: fileMeta.id,
             name: fileMeta.name,
             type: fileMeta.type,
-            data: dataUrl,
+            data: `data:${mimeType};base64,${base64Data}`,
             pageNumber: fileMeta.pageNumber,
           });
         }
@@ -1322,23 +1304,16 @@ const registerIpcHandlers = () => {
         'utf-8'
       );
 
-      // Copy files
-      const fileMapping: Record<string, string> = {}; // Maps file ID to saved filename
+      const fileMapping: Record<string, string> = {};
       for (const file of projectData.files) {
-        // Create a safe filename - only remove characters that are invalid in file systems
         const safeName = file.name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_');
-        const fileExtension = path.extname(safeName) || (file.type === 'image' ? '.png' : file.type === 'video' ? '.mp4' : '.pdf');
+        const fileExtension = path.extname(safeName) || getFileExtension(file.type);
         const baseName = path.basename(safeName, fileExtension);
         const savedFileName = file.pageNumber
           ? `${baseName}_page${file.pageNumber}${fileExtension}`
           : `${baseName}${fileExtension}`;
-        const savedFilePath = path.join(filesDir, savedFileName);
-
-        // Convert base64 data URL to buffer and save
-        const base64Data = file.data.split(',')[1] || file.data;
-        const buffer = Buffer.from(base64Data, 'base64');
-        await fs.writeFile(savedFilePath, buffer);
-
+        const buffer = Buffer.from(extractBase64Data(file.data), 'base64');
+        await fs.writeFile(path.join(filesDir, savedFileName), buffer);
         fileMapping[file.id] = savedFileName;
       }
 
@@ -1452,25 +1427,14 @@ const registerIpcHandlers = () => {
         if (entry.isFile()) {
           const filePath = path.join(filesDir, entry.name);
 
-          // Determine file type from extension
           const ext = path.extname(entry.name).toLowerCase();
           let fileType = 'image';
-          let mimeType = 'image/png';
           if (['.mp4', '.webm', '.ogg', '.mov', '.avi'].includes(ext)) {
             fileType = 'video';
-            mimeType = 'video/mp4';
           } else if (ext === '.pdf') {
             fileType = 'document';
-            mimeType = 'application/pdf';
-          } else if (['.jpg', '.jpeg'].includes(ext)) {
-            mimeType = 'image/jpeg';
-          } else if (ext === '.png') {
-            mimeType = 'image/png';
-          } else if (ext === '.gif') {
-            mimeType = 'image/gif';
-          } else if (ext === '.webp') {
-            mimeType = 'image/webp';
           }
+          const mimeType = getMimeType(fileType, entry.name);
 
           // Extract page number from filename if present
           const pageMatch = entry.name.match(/_page(\d+)/);
@@ -1481,7 +1445,6 @@ const registerIpcHandlers = () => {
             id => fileMapping[id] === entry.name
           ) || `${entry.name}-${Date.now()}-${Math.random()}`;
 
-          // Read file and convert to base64
           const fileBuffer = await fs.readFile(filePath);
           const base64Data = fileBuffer.toString('base64');
           const dataUrl = `data:${mimeType};base64,${base64Data}`;
@@ -1531,25 +1494,64 @@ app.whenReady().then(async () => {
   if (mainWindow) {
     mainWindow.webContents.once('did-finish-load', async () => {
       try {
-        // Load settings
-        const settingsPath = getSettingsPath();
-        if (existsSync(settingsPath)) {
-          const settingsData = await fs.readFile(settingsPath, 'utf-8');
-          const settings = JSON.parse(settingsData);
-          // Load exit behavior settings
-          if (settings.showExitPrompt !== undefined) {
-            exitBehaviorSettings.showExitPrompt = settings.showExitPrompt;
+        const settings = await loadSettings();
+        if (settings) {
+          await loadExitBehaviorSettings();
+
+          // Load and apply startup settings (only if not in debug mode)
+          if (!isDebugMode() && (settings.bootOnStartup !== undefined || settings.bootInProjectorMode !== undefined)) {
+            appSettings.bootOnStartup = settings.bootOnStartup ?? false;
+            appSettings.bootInProjectorMode = settings.bootInProjectorMode ?? false;
+
+            // Apply startup settings (Linux uses .desktop file, Windows/macOS use setLoginItemSettings)
+            if (process.platform === 'linux') {
+              try {
+                await updateLinuxAutostart(appSettings.bootOnStartup, appSettings.bootInProjectorMode);
+              } catch (error) {
+                console.error('Error applying Linux autostart settings on startup:', error);
+              }
+            } else {
+              const loginItemSettings: Electron.Settings = {
+                openAtLogin: appSettings.bootOnStartup,
+                openAsHidden: false,
+                args: appSettings.bootInProjectorMode ? ['--projector-mode'] : [],
+              };
+              app.setLoginItemSettings(loginItemSettings);
+            }
+          } else if (isDebugMode()) {
+            // In debug mode, ensure autostart is disabled
+            console.log('Autostart disabled in debug mode');
+            if (process.platform === 'linux') {
+              try {
+                await removeLinuxAutostartDesktop();
+              } catch (error) {
+                // Ignore errors when removing in debug mode
+              }
+            } else {
+              const loginItemSettings: Electron.Settings = {
+                openAtLogin: false,
+                openAsHidden: false,
+                args: [],
+              };
+              app.setLoginItemSettings(loginItemSettings);
+            }
           }
-          if (settings.exitBehavior !== undefined) {
-            exitBehaviorSettings.exitBehavior = settings.exitBehavior;
+
+          notifyMainWindow('load-persistent-settings', settings);
+        } else {
+          // Even if no settings file exists, check command line flag
+          if (shouldBootInProjectorMode) {
+            // Will trigger after files are loaded
           }
-          mainWindow?.webContents.send('load-persistent-settings', settings);
         }
 
         // Load files
         const storagePath = getFilesStoragePath();
         const filesDir = path.join(storagePath, 'files');
         const metadataPath = path.join(storagePath, 'metadata.json');
+
+        // Check if we should boot in projector mode (either from command line or settings)
+        const shouldBootInProjector = shouldBootInProjectorMode || (settings && settings.bootInProjectorMode === true);
 
         if (existsSync(metadataPath) && existsSync(filesDir)) {
           try {
@@ -1565,34 +1567,20 @@ app.whenReady().then(async () => {
             }> = [];
 
             for (const fileMeta of metadata.files) {
-              // Only load full files, not page files (pages are part of PDFs)
-              if (fileMeta.pageNumber) {
-                continue; // Skip page files, we'll load the full PDF
-              }
+              if (fileMeta.pageNumber) continue;
 
-              const fileExtension = fileMeta.type === 'image' ? '.png' : fileMeta.type === 'video' ? '.mp4' : '.pdf';
-              const savedFileName = `${fileMeta.id}${fileExtension}`;
+              const savedFileName = `${fileMeta.id}${getFileExtension(fileMeta.type)}`;
               const filePath = path.join(filesDir, savedFileName);
 
               if (existsSync(filePath)) {
                 const fileBuffer = await fs.readFile(filePath);
                 const base64Data = fileBuffer.toString('base64');
-
-                let mimeType = 'image/png';
-                if (fileMeta.type === 'video') {
-                  mimeType = 'video/mp4';
-                } else if (fileMeta.type === 'document') {
-                  mimeType = 'application/pdf';
-                } else if (path.extname(savedFileName).toLowerCase() === '.jpg' || path.extname(savedFileName).toLowerCase() === '.jpeg') {
-                  mimeType = 'image/jpeg';
-                }
-
-                const dataUrl = `data:${mimeType};base64,${base64Data}`;
+                const mimeType = getMimeType(fileMeta.type, savedFileName);
                 files.push({
                   id: fileMeta.id,
                   name: fileMeta.name,
                   type: fileMeta.type,
-                  data: dataUrl,
+                  data: `data:${mimeType};base64,${base64Data}`,
                 });
               }
             }
@@ -1601,21 +1589,31 @@ app.whenReady().then(async () => {
               files,
               fileOrder: metadata.fileOrder || [],
             });
+
+            // Trigger boot-in-projector-mode after files are loaded and processed
+            // Give enough time for the renderer to process the files
+            if (shouldBootInProjector) {
+              setTimeout(() => notifyMainWindow('boot-in-projector-mode'), 1000);
+            }
           } catch (error) {
             console.error('Error loading persistent files:', error);
+            // Even if there's an error loading files, trigger boot-in-projector-mode if needed
+            if (shouldBootInProjector) {
+              setTimeout(() => notifyMainWindow('boot-in-projector-mode'), 1000);
+            }
+          }
+        } else {
+          // No files to load, but still trigger boot-in-projector-mode if needed
+          if (shouldBootInProjector) {
+            setTimeout(() => notifyMainWindow('boot-in-projector-mode'), 1000);
           }
         }
       } catch (error) {
         console.error('Error loading persistent data:', error);
-      }
-
-      // If booting in projector mode, wait a bit then open projector
-      if (shouldBootInProjectorMode) {
-        setTimeout(() => {
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('boot-in-projector-mode');
-          }
-        }, 500);
+        // Even if there's an error loading settings, check command line flag
+        if (shouldBootInProjectorMode) {
+          setTimeout(() => notifyMainWindow('boot-in-projector-mode'), 500);
+        }
       }
     });
   }

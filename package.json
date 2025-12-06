@@ -1,5 +1,5 @@
 {
-  "name": "simple-projector",
+  "name": "SimpleProjector",
   "productName": "SimpleProjector",
   "version": "1.0.0",
   "description": "My Electron application description",
@@ -52,6 +52,7 @@
     "@types/react-dom": "^19.2.3",
     "adm-zip": "^0.5.16",
     "archiver": "^7.0.1",
+    "auto-launch": "^5.0.6",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "electron-squirrel-startup": "^1.0.1",

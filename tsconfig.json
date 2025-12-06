@@ -16,6 +16,6 @@
     "isolatedModules": true,
     "allowSyntheticDefaultImports": true
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "forge.env.d.ts"],
   "exclude": ["node_modules"]
 }
