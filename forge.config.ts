@@ -6,6 +6,7 @@ import { MakerRpm } from '@electron-forge/maker-rpm';
 import { VitePlugin } from '@electron-forge/plugin-vite';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
+import PublisherGithub from '@electron-forge/publisher-github';
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -19,13 +20,23 @@ const config: ForgeConfig = {
     extraResource: ['./src/assets'],
   },
   rebuildConfig: {},
+  publishers: [
+    new PublisherGithub({
+      repository: {
+        owner: 'AvenitaDev',
+        name: 'SimpleProjector',
+      },
+      authToken: process.env.GITHUB_TOKEN,
+      draft: true,
+      prerelease: false,
+    }),
+  ],
   makers: [
     new MakerSquirrel({
       name: "SimpleProjector",
       iconUrl: 'http://src/assets/icon.ico',
       setupIcon: './src/assets/icon.ico',
     }),
-    new MakerZIP({}, ['darwin']),
     new MakerRpm({
       options: {
         name: 'SimpleProjector',
