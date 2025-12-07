@@ -81,3 +81,10 @@ Packages are created under the `out` directory for each supported platform.
 ### License
 
 This project is released under the **MIT License**, as defined in `package.json`. You are free to use, modify, and distribute it, subject to the terms of that license.
+
+<p align="center">
+  <a href="https://buymeacoffee.com/avenitadev" target="_blank">
+    <img src="https://raw.githubusercontent.com/pachadotdev/buymeacoffee-badges/main/bmc-yellow.svg" alt="Buy Me A Coffee" width="220" height="45" style="margin-top:12px; max-width:100%;">
+  </a>
+</p>
+
